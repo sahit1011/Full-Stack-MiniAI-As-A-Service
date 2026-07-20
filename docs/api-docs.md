@@ -1,8 +1,8 @@
-# 🔌 API Documentation - Othor AI Assignment
+# 🔌 API Documentation - Klaro Assignment
 
 ## 📋 Overview
 
-The Othor AI API provides endpoints for CSV data analysis, machine learning model training, and predictions. All endpoints return JSON responses and use standard HTTP status codes.
+The Klaro API provides endpoints for CSV data analysis, machine learning model training, and predictions. All endpoints return JSON responses and use standard HTTP status codes.
 
 **Base URL:** `http://localhost:8000`  
 **API Documentation:** `http://localhost:8000/docs` (Swagger UI)

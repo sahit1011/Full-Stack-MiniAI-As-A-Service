@@ -9,9 +9,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
 import {
   CpuChipIcon as Brain,
-  TargetIcon as Target,
+  ViewfinderCircleIcon as Target,
   LightBulbIcon as Lightbulb,
-  TrendingUpIcon as TrendingUp,
+  ArrowTrendingUpIcon as TrendingUp,
   ExclamationTriangleIcon as AlertTriangle,
   CheckCircleIcon as CheckCircle,
   ClockIcon as Clock,

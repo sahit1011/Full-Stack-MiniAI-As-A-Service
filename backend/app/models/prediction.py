@@ -38,8 +38,18 @@ class PredictRequest(BaseModel):
 class PredictionResult(BaseModel):
     """Single prediction result"""
     prediction: Union[int, float, str] = Field(..., description="Predicted value")
-    confidence: float = Field(..., description="Prediction confidence score")
+    confidence: Optional[float] = Field(
+        None,
+        description="Prediction confidence (max class probability). Null for regression or models "
+                    "without probability estimates — never a fabricated value.",
+    )
     probabilities: Optional[Dict[str, float]] = Field(None, description="Class probabilities (classification only)")
+    interval_low: Optional[float] = Field(
+        None, description="Lower bound of the ~95% prediction interval (regression only)."
+    )
+    interval_high: Optional[float] = Field(
+        None, description="Upper bound of the ~95% prediction interval (regression only)."
+    )
 
 
 class PredictResponse(BaseModel):

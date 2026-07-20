@@ -1,4 +1,4 @@
-# 🐳 Docker Deployment Guide - Othor AI
+# 🐳 Docker Deployment Guide - Klaro
 
 ## 🚀 Quick Start for Recruiters
 

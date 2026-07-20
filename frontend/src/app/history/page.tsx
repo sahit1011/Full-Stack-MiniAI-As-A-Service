@@ -1,6 +1,8 @@
 "use client"
 
 import { useState, useEffect } from 'react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import { apiService, FileHistoryItem, ModelHistoryItem, UserStats } from '@/lib/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -14,14 +16,11 @@ import {
   FileText,
   Brain,
   TrendingUp,
-  Database,
   Clock,
   CheckCircle,
   XCircle,
   AlertCircle,
   BarChart3,
-  Users,
-  HardDrive,
   Download,
   Sparkles,
   Target,
@@ -34,6 +33,7 @@ import {
 import ProtectedRoute from '@/components/ProtectedRoute'
 
 export default function HistoryPage() {
+  const router = useRouter()
   const { user, isAuthenticated } = useAuth()
   const [files, setFiles] = useState<FileHistoryItem[]>([])
   const [models, setModels] = useState<ModelHistoryItem[]>([])
@@ -70,10 +70,6 @@ export default function HistoryPage() {
         apiService.getUserStats()
       ])
 
-      // Check if there's new data
-      const hasNewFiles = filesData.length > files.length
-      const hasNewModels = modelsData.length > models.length
-
       setFiles(filesData)
       setModels(modelsData)
       setStats(statsData)
@@ -81,8 +77,6 @@ export default function HistoryPage() {
 
       if (showSuccessToast) {
         toast.success('History data refreshed successfully!')
-      } else if (hasNewFiles || hasNewModels) {
-        toast.success(`New ${hasNewFiles ? 'files' : ''}${hasNewFiles && hasNewModels ? ' and ' : ''}${hasNewModels ? 'models' : ''} detected!`)
       }
     } catch (error) {
       console.error('Error loading history:', error)
@@ -96,25 +90,25 @@ export default function HistoryPage() {
     switch (status.toLowerCase()) {
       case 'completed':
       case 'processed':
-        return <CheckCircle className="h-4 w-4 text-green-500" />
+        return <CheckCircle className="h-4 w-4 text-success" />
       case 'failed':
       case 'error':
-        return <XCircle className="h-4 w-4 text-red-500" />
+        return <XCircle className="h-4 w-4 text-destructive" />
       case 'training':
       case 'processing':
-        return <AlertCircle className="h-4 w-4 text-yellow-500" />
+        return <AlertCircle className="h-4 w-4 text-warning" />
       default:
-        return <Clock className="h-4 w-4 text-gray-500" />
+        return <Clock className="h-4 w-4 text-muted-foreground" />
     }
   }
 
   const getStatusBadge = (status: string) => {
-    const variant = status.toLowerCase() === 'completed' || status.toLowerCase() === 'processed' 
-      ? 'default' 
+    const variant = status.toLowerCase() === 'completed' || status.toLowerCase() === 'processed'
+      ? 'success'
       : status.toLowerCase() === 'failed' || status.toLowerCase() === 'error'
-      ? 'destructive'
+      ? 'error'
       : 'secondary'
-    
+
     return <Badge variant={variant}>{status}</Badge>
   }
 
@@ -122,7 +116,7 @@ export default function HistoryPage() {
     try {
       setDownloadingModels(prev => new Set(prev).add(modelId))
       await apiService.downloadModel(modelId)
-      toast.success(`Model "${modelName}" downloaded successfully! 🎉`)
+      toast.success(`Model "${modelName}" downloaded successfully!`)
     } catch (error) {
       console.error('Download error:', error)
       toast.error('Failed to download model. Please try again.')
@@ -146,9 +140,9 @@ export default function HistoryPage() {
     return (
       <div className="container mx-auto px-4 py-8">
         <div className="text-center">
-          <h1 className="text-2xl font-bold mb-4">Authentication Required</h1>
-          <p className="text-gray-600 mb-4">Please log in to view your history.</p>
-          <Button onClick={() => window.location.href = '/login'}>
+          <h1 className="text-2xl font-bold mb-4 text-foreground">Authentication Required</h1>
+          <p className="text-muted-foreground mb-4">Please log in to view your history.</p>
+          <Button onClick={() => router.push('/login')}>
             Go to Login
           </Button>
         </div>
@@ -156,42 +150,21 @@ export default function HistoryPage() {
     )
   }
 
-  if (loading) {
-    return (
-      <ProtectedRoute>
-        <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 pt-20">
-          <div className="container mx-auto px-4 py-12">
-            <div className="text-center">
-              <motion.div
-                animate={{ rotate: 360 }}
-                transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                className="w-16 h-16 mx-auto mb-6"
-              >
-                <Sparkles className="w-16 h-16 text-purple-400" />
-              </motion.div>
-              <p className="text-xl text-purple-200">Loading your AI journey...</p>
-            </div>
-          </div>
-        </div>
-      </ProtectedRoute>
-    )
-  }
-
   return (
     <ProtectedRoute>
-      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 pt-20">
+      <div className="min-h-screen bg-background pt-20">
         {/* Hero Section */}
         <div className="container mx-auto px-4 py-12">
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
+            transition={{ duration: 0.5 }}
             className="text-center mb-12"
           >
-            <h1 className="text-5xl md:text-6xl font-bold text-white mb-4">
-              Welcome back, <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400">{user?.full_name || user?.username}</span>! 👋
+            <h1 className="text-4xl md:text-5xl font-bold text-foreground mb-4">
+              Welcome back, <span className="text-primary">{user?.full_name || user?.username}</span>
             </h1>
-            <p className="text-xl text-purple-200 max-w-2xl mx-auto mb-6">
+            <p className="text-lg text-muted-foreground max-w-2xl mx-auto mb-6">
               Your AI-powered data science journey continues. Explore your models, analyze your progress, and unlock new insights.
             </p>
 
@@ -201,11 +174,10 @@ export default function HistoryPage() {
               disabled={loading}
               variant="outline"
               size="lg"
-              className="border-purple-400 text-purple-300 hover:bg-purple-400 hover:text-white disabled:opacity-50"
             >
               {loading ? (
                 <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary mr-2"></div>
                   Refreshing...
                 </>
               ) : (
@@ -218,7 +190,7 @@ export default function HistoryPage() {
 
             {/* Last Refresh Timestamp */}
             {lastRefresh && (
-              <p className="text-sm text-purple-300 mt-2">
+              <p className="text-sm text-muted-foreground mt-2 font-mono tabular-nums">
                 Last updated: {formatDistanceToNow(lastRefresh, { addSuffix: true })}
               </p>
             )}
@@ -226,35 +198,35 @@ export default function HistoryPage() {
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-8">
             <motion.div
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.2 }}
+              transition={{ duration: 0.5, delay: 0.1 }}
             >
-              <TabsList className="grid w-full grid-cols-4 bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl p-2">
+              <TabsList className="grid w-full grid-cols-4 border border-border bg-card rounded-lg p-2">
                 <TabsTrigger
                   value="overview"
-                  className="data-[state=active]:bg-white data-[state=active]:text-purple-900 text-white rounded-xl transition-all duration-300"
+                  className="data-[state=active]:bg-elevated data-[state=active]:text-primary text-muted-foreground rounded-md transition-colors"
                 >
                   <Activity className="w-4 h-4 mr-2" />
                   Overview
                 </TabsTrigger>
                 <TabsTrigger
                   value="files"
-                  className="data-[state=active]:bg-white data-[state=active]:text-purple-900 text-white rounded-xl transition-all duration-300"
+                  className="data-[state=active]:bg-elevated data-[state=active]:text-primary text-muted-foreground rounded-md transition-colors"
                 >
                   <FileText className="w-4 h-4 mr-2" />
-                  Files ({files.length})
+                  Files (<span className="font-mono tabular-nums">{files.length}</span>)
                 </TabsTrigger>
                 <TabsTrigger
                   value="models"
-                  className="data-[state=active]:bg-white data-[state=active]:text-purple-900 text-white rounded-xl transition-all duration-300"
+                  className="data-[state=active]:bg-elevated data-[state=active]:text-primary text-muted-foreground rounded-md transition-colors"
                 >
                   <Brain className="w-4 h-4 mr-2" />
-                  Models ({models.length})
+                  Models (<span className="font-mono tabular-nums">{models.length}</span>)
                 </TabsTrigger>
                 <TabsTrigger
                   value="stats"
-                  className="data-[state=active]:bg-white data-[state=active]:text-purple-900 text-white rounded-xl transition-all duration-300"
+                  className="data-[state=active]:bg-elevated data-[state=active]:text-primary text-muted-foreground rounded-md transition-colors"
                 >
                   <BarChart3 className="w-4 h-4 mr-2" />
                   Statistics
@@ -262,58 +234,66 @@ export default function HistoryPage() {
               </TabsList>
             </motion.div>
 
+            {/* Inline loading indicator — keep header/tabs visible during refresh */}
+            {loading && (
+              <div className="flex items-center justify-center gap-3 py-6 text-muted-foreground">
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary"></div>
+                <span className="text-sm">Loading your history...</span>
+              </div>
+            )}
+
             <TabsContent value="overview" className="space-y-8">
               <motion.div
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6, delay: 0.3 }}
+                transition={{ duration: 0.5, delay: 0.15 }}
                 className="grid grid-cols-1 md:grid-cols-3 gap-6"
               >
-                <Card className="glass border-white/20 bg-white/10 backdrop-blur-md hover:bg-white/15 transition-all duration-300">
+                <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium text-white">Total Files</CardTitle>
-                    <div className="p-2 bg-blue-500/20 rounded-lg">
-                      <FileText className="h-5 w-5 text-blue-400" />
+                    <CardTitle className="text-sm font-medium text-foreground">Total Files</CardTitle>
+                    <div className="p-2 bg-elevated rounded-lg">
+                      <FileText className="h-5 w-5 text-primary" />
                     </div>
                   </CardHeader>
                   <CardContent>
-                    <div className="text-3xl font-bold text-white mb-1">{stats?.file_statistics.total_files || 0}</div>
-                    <p className="text-sm text-purple-200">
+                    <div className="text-3xl font-bold text-foreground mb-1 font-mono tabular-nums">{stats?.file_statistics.total_files || 0}</div>
+                    <p className="text-sm text-muted-foreground">
                       {formatFileSize(stats?.file_statistics.total_size_bytes || 0)} total
                     </p>
                   </CardContent>
                 </Card>
 
-                <Card className="glass border-white/20 bg-white/10 backdrop-blur-md hover:bg-white/15 transition-all duration-300">
+                <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium text-white">Trained Models</CardTitle>
-                    <div className="p-2 bg-purple-500/20 rounded-lg">
-                      <Brain className="h-5 w-5 text-purple-400" />
+                    <CardTitle className="text-sm font-medium text-foreground">Trained Models</CardTitle>
+                    <div className="p-2 bg-elevated rounded-lg">
+                      <Brain className="h-5 w-5 text-primary" />
                     </div>
                   </CardHeader>
                   <CardContent>
-                    <div className="text-3xl font-bold text-white mb-1">{stats?.model_statistics.total_models || 0}</div>
-                    <p className="text-sm text-purple-200">
+                    <div className="text-3xl font-bold text-foreground mb-1 font-mono tabular-nums">{stats?.model_statistics.total_models || 0}</div>
+                    <p className="text-sm text-muted-foreground">
                       Across {Object.keys(stats?.model_statistics.by_algorithm || {}).length} algorithms
                     </p>
                   </CardContent>
                 </Card>
 
-                <Card className="glass border-white/20 bg-white/10 backdrop-blur-md hover:bg-white/15 transition-all duration-300">
+                <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium text-white">Success Rate</CardTitle>
-                    <div className="p-2 bg-green-500/20 rounded-lg">
-                      <TrendingUp className="h-5 w-5 text-green-400" />
+                    <CardTitle className="text-sm font-medium text-foreground">Success Rate</CardTitle>
+                    <div className="p-2 bg-elevated rounded-lg">
+                      <TrendingUp className="h-5 w-5 text-primary" />
                     </div>
                   </CardHeader>
                   <CardContent>
-                    <div className="text-3xl font-bold text-white mb-1">
+                    <div className="text-3xl font-bold text-foreground mb-1 font-mono tabular-nums">
                       {stats ? Math.round(
                         ((stats.file_statistics.by_status?.processed || 0) /
                          Math.max(stats.file_statistics.total_files, 1)) * 100
                       ) : 0}%
                     </div>
-                    <p className="text-sm text-purple-200">
+                    <p className="text-sm text-muted-foreground">
                       Files processed successfully
                     </p>
                   </CardContent>
@@ -324,30 +304,30 @@ export default function HistoryPage() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <FileText className="h-5 w-5" />
+                  <FileText className="h-5 w-5 text-primary" />
                   Recent Files
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
                   {files.slice(0, 5).map((file) => (
-                    <div key={file.id} className="flex items-center justify-between p-3 border rounded-lg">
+                    <div key={file.id} className="flex items-center justify-between p-3 border border-border rounded-lg">
                       <div className="flex-1">
-                        <p className="font-medium text-sm">{file.original_filename}</p>
-                        <p className="text-xs text-gray-500">
+                        <p className="font-medium text-sm text-foreground">{file.original_filename}</p>
+                        <p className="text-xs text-muted-foreground font-mono tabular-nums">
                           {file.num_rows} rows × {file.num_columns} columns
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
                         {getStatusIcon(file.status)}
-                        <span className="text-xs text-gray-500">
+                        <span className="text-xs text-muted-foreground font-mono tabular-nums">
                           {formatDistanceToNow(new Date(file.uploaded_at), { addSuffix: true })}
                         </span>
                       </div>
                     </div>
                   ))}
                   {files.length === 0 && (
-                    <p className="text-center text-gray-500 py-4">No files uploaded yet</p>
+                    <p className="text-center text-muted-foreground py-4">No files uploaded yet</p>
                   )}
                 </div>
               </CardContent>
@@ -356,30 +336,30 @@ export default function HistoryPage() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Brain className="h-5 w-5" />
+                  <Brain className="h-5 w-5 text-primary" />
                   Recent Models
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
                   {models.slice(0, 5).map((model) => (
-                    <div key={model.id} className="flex items-center justify-between p-3 border rounded-lg">
+                    <div key={model.id} className="flex items-center justify-between p-3 border border-border rounded-lg">
                       <div className="flex-1">
-                        <p className="font-medium text-sm">{model.algorithm}</p>
-                        <p className="text-xs text-gray-500">
+                        <p className="font-medium text-sm text-foreground">{model.algorithm}</p>
+                        <p className="text-xs text-muted-foreground">
                           {model.target_column} • {model.model_type}
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
                         {getStatusIcon(model.status)}
-                        <span className="text-xs text-gray-500">
+                        <span className="text-xs text-muted-foreground font-mono tabular-nums">
                           {formatDistanceToNow(new Date(model.created_at), { addSuffix: true })}
                         </span>
                       </div>
                     </div>
                   ))}
                   {models.length === 0 && (
-                    <p className="text-center text-gray-500 py-4">No models trained yet</p>
+                    <p className="text-center text-muted-foreground py-4">No models trained yet</p>
                   )}
                 </div>
               </CardContent>
@@ -392,39 +372,41 @@ export default function HistoryPage() {
             <CardHeader>
               <CardTitle>File Upload History</CardTitle>
               <CardDescription>
-                All files you've uploaded for analysis and model training
+                All files you&apos;ve uploaded for analysis and model training
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
                 {files.map((file) => (
-                  <div key={file.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50">
+                  <div key={file.id} className="flex items-center justify-between p-4 border border-border rounded-lg hover:bg-elevated transition-colors">
                     <div className="flex items-center gap-4">
-                      <FileText className="h-8 w-8 text-blue-500" />
+                      <div className="p-2 bg-elevated rounded-lg">
+                        <FileText className="h-8 w-8 text-primary" />
+                      </div>
                       <div>
-                        <h3 className="font-medium">{file.original_filename}</h3>
-                        <p className="text-sm text-gray-500">
+                        <h3 className="font-medium text-foreground">{file.original_filename}</h3>
+                        <p className="text-sm text-muted-foreground font-mono tabular-nums">
                           {formatFileSize(file.file_size)} • {file.num_rows} rows × {file.num_columns} columns
                         </p>
-                        <p className="text-xs text-gray-400">
+                        <p className="text-xs text-muted-foreground font-mono tabular-nums">
                           Uploaded {formatDistanceToNow(new Date(file.uploaded_at), { addSuffix: true })}
                         </p>
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
                       {getStatusBadge(file.status)}
-                      <Button variant="outline" size="sm">
-                        View Details
+                      <Button asChild variant="outline" size="sm">
+                        <Link href={`/profile/${file.session_id}`}>View Details</Link>
                       </Button>
                     </div>
                   </div>
                 ))}
                 {files.length === 0 && (
                   <div className="text-center py-8">
-                    <FileText className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-                    <p className="text-gray-500">No files uploaded yet</p>
-                    <Button className="mt-4" onClick={() => window.location.href = '/upload'}>
-                      Upload Your First File
+                    <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                    <p className="text-muted-foreground">No files uploaded yet</p>
+                    <Button asChild className="mt-4">
+                      <Link href="/upload">Upload Your First File</Link>
                     </Button>
                   </div>
                 )}
@@ -435,17 +417,17 @@ export default function HistoryPage() {
 
             <TabsContent value="models" className="space-y-6">
               <motion.div
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6, delay: 0.3 }}
+                transition={{ duration: 0.5, delay: 0.15 }}
               >
-                <Card className="glass border-white/20 bg-white/10 backdrop-blur-md">
+                <Card>
                   <CardHeader>
-                    <CardTitle className="text-white flex items-center gap-2">
-                      <Brain className="h-6 w-6 text-purple-400" />
+                    <CardTitle className="flex items-center gap-2">
+                      <Brain className="h-6 w-6 text-primary" />
                       Your AI Models Collection
                     </CardTitle>
-                    <CardDescription className="text-purple-200">
+                    <CardDescription>
                       Download, analyze, and manage your trained machine learning models
                     </CardDescription>
                   </CardHeader>
@@ -455,20 +437,20 @@ export default function HistoryPage() {
                         {models.map((model, index) => (
                           <motion.div
                             key={model.id}
-                            initial={{ opacity: 0, x: -20 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            exit={{ opacity: 0, x: 20 }}
-                            transition={{ duration: 0.3, delay: index * 0.1 }}
-                            className="group relative p-6 border border-white/20 rounded-2xl bg-white/5 hover:bg-white/10 transition-all duration-300"
+                            initial={{ opacity: 0, y: 12 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: 12 }}
+                            transition={{ duration: 0.3, delay: index * 0.05 }}
+                            className="p-6 border border-border rounded-lg bg-card hover:border-primary/40 transition-colors"
                           >
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-4">
-                                <div className="p-3 bg-gradient-to-r from-purple-500/20 to-pink-500/20 rounded-xl">
-                                  <Cpu className="h-8 w-8 text-purple-400" />
+                                <div className="p-3 bg-elevated rounded-lg">
+                                  <Cpu className="h-8 w-8 text-primary" />
                                 </div>
                                 <div>
-                                  <h3 className="text-lg font-semibold text-white mb-1">{model.algorithm}</h3>
-                                  <div className="flex items-center gap-4 text-sm text-purple-200 mb-2">
+                                  <h3 className="text-lg font-semibold text-foreground mb-1">{model.algorithm}</h3>
+                                  <div className="flex items-center gap-4 text-sm text-muted-foreground mb-2">
                                     <span className="flex items-center gap-1">
                                       <Target className="h-4 w-4" />
                                       {model.target_column}
@@ -478,13 +460,13 @@ export default function HistoryPage() {
                                       {model.model_type}
                                     </span>
                                   </div>
-                                  <div className="flex items-center gap-4 text-xs text-purple-300">
-                                    <span className="flex items-center gap-1">
+                                  <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                                    <span className="flex items-center gap-1 font-mono tabular-nums">
                                       <Calendar className="h-3 w-3" />
                                       {formatDistanceToNow(new Date(model.created_at), { addSuffix: true })}
                                     </span>
                                     {model.training_duration && (
-                                      <span className="flex items-center gap-1">
+                                      <span className="flex items-center gap-1 font-mono tabular-nums">
                                         <Clock className="h-3 w-3" />
                                         {model.training_duration.toFixed(2)}s
                                       </span>
@@ -499,7 +481,6 @@ export default function HistoryPage() {
                                   size="sm"
                                   onClick={() => handleDownloadModel(model.model_id, model.algorithm)}
                                   disabled={downloadingModels.has(model.model_id)}
-                                  className="border-purple-400 text-purple-300 hover:bg-purple-400 hover:text-white transition-all duration-300"
                                 >
                                   {downloadingModels.has(model.model_id) ? (
                                     <motion.div
@@ -514,9 +495,11 @@ export default function HistoryPage() {
                                   )}
                                   {downloadingModels.has(model.model_id) ? 'Downloading...' : 'Download'}
                                 </Button>
-                                <Button variant="outline" size="sm" className="border-white/20 text-white hover:bg-white/10">
-                                  <Zap className="w-4 h-4 mr-2" />
-                                  Predict
+                                <Button asChild variant="outline" size="sm">
+                                  <Link href={`/predict/${model.model_id}?model_id=${model.model_id}`}>
+                                    <Zap className="w-4 h-4 mr-2" />
+                                    Predict
+                                  </Link>
                                 </Button>
                               </div>
                             </div>
@@ -525,21 +508,20 @@ export default function HistoryPage() {
                       </AnimatePresence>
                       {models.length === 0 && (
                         <motion.div
-                          initial={{ opacity: 0, y: 20 }}
+                          initial={{ opacity: 0, y: 12 }}
                           animate={{ opacity: 1, y: 0 }}
                           className="text-center py-12"
                         >
-                          <div className="w-24 h-24 mx-auto mb-6 bg-gradient-to-r from-purple-500/20 to-pink-500/20 rounded-2xl flex items-center justify-center">
-                            <Brain className="h-12 w-12 text-purple-400" />
+                          <div className="w-24 h-24 mx-auto mb-6 bg-elevated rounded-lg flex items-center justify-center">
+                            <Brain className="h-12 w-12 text-primary" />
                           </div>
-                          <h3 className="text-xl font-semibold text-white mb-2">No models trained yet</h3>
-                          <p className="text-purple-200 mb-6">Start your AI journey by training your first model</p>
-                          <Button
-                            className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white"
-                            onClick={() => window.location.href = '/train'}
-                          >
-                            <Sparkles className="w-4 h-4 mr-2" />
-                            Train Your First Model
+                          <h3 className="text-xl font-semibold text-foreground mb-2">No models trained yet</h3>
+                          <p className="text-muted-foreground mb-6">Upload a dataset to train your first model</p>
+                          <Button asChild>
+                            <Link href="/upload">
+                              <Sparkles className="w-4 h-4 mr-2" />
+                              Upload a dataset
+                            </Link>
                           </Button>
                         </motion.div>
                       )}
@@ -556,25 +538,25 @@ export default function HistoryPage() {
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
-                      <BarChart3 className="h-5 w-5" />
+                      <BarChart3 className="h-5 w-5 text-primary" />
                       File Statistics
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="flex justify-between">
-                      <span>Total Files:</span>
-                      <span className="font-medium">{stats.file_statistics.total_files}</span>
+                      <span className="text-muted-foreground">Total Files:</span>
+                      <span className="font-medium text-foreground font-mono tabular-nums">{stats.file_statistics.total_files}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span>Total Size:</span>
-                      <span className="font-medium">{formatFileSize(stats.file_statistics.total_size_bytes)}</span>
+                      <span className="text-muted-foreground">Total Size:</span>
+                      <span className="font-medium text-foreground font-mono tabular-nums">{formatFileSize(stats.file_statistics.total_size_bytes)}</span>
                     </div>
                     <div className="space-y-2">
-                      <p className="text-sm font-medium">By Status:</p>
+                      <p className="text-sm font-medium text-foreground">By Status:</p>
                       {Object.entries(stats.file_statistics.by_status).map(([status, count]) => (
                         <div key={status} className="flex justify-between text-sm">
-                          <span className="capitalize">{status}:</span>
-                          <span>{count}</span>
+                          <span className="capitalize text-muted-foreground">{status}:</span>
+                          <span className="text-foreground font-mono tabular-nums">{count}</span>
                         </div>
                       ))}
                     </div>
@@ -584,30 +566,30 @@ export default function HistoryPage() {
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
-                      <Brain className="h-5 w-5" />
+                      <Brain className="h-5 w-5 text-primary" />
                       Model Statistics
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="flex justify-between">
-                      <span>Total Models:</span>
-                      <span className="font-medium">{stats.model_statistics.total_models}</span>
+                      <span className="text-muted-foreground">Total Models:</span>
+                      <span className="font-medium text-foreground font-mono tabular-nums">{stats.model_statistics.total_models}</span>
                     </div>
                     <div className="space-y-2">
-                      <p className="text-sm font-medium">By Algorithm:</p>
+                      <p className="text-sm font-medium text-foreground">By Algorithm:</p>
                       {Object.entries(stats.model_statistics.by_algorithm).map(([algorithm, count]) => (
                         <div key={algorithm} className="flex justify-between text-sm">
-                          <span className="capitalize">{algorithm.replace('_', ' ')}:</span>
-                          <span>{count}</span>
+                          <span className="capitalize text-muted-foreground">{algorithm.replace('_', ' ')}:</span>
+                          <span className="text-foreground font-mono tabular-nums">{count}</span>
                         </div>
                       ))}
                     </div>
                     <div className="space-y-2">
-                      <p className="text-sm font-medium">By Status:</p>
+                      <p className="text-sm font-medium text-foreground">By Status:</p>
                       {Object.entries(stats.model_statistics.by_status).map(([status, count]) => (
                         <div key={status} className="flex justify-between text-sm">
-                          <span className="capitalize">{status}:</span>
-                          <span>{count}</span>
+                          <span className="capitalize text-muted-foreground">{status}:</span>
+                          <span className="text-foreground font-mono tabular-nums">{count}</span>
                         </div>
                       ))}
                     </div>

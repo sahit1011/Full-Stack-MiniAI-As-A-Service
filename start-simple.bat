@@ -1,5 +1,5 @@
 @echo off
-echo Starting Othor AI - Local Development Mode
+echo Starting Klaro - Local Development Mode
 echo ===============================================
 echo.
 
@@ -64,7 +64,7 @@ echo Starting Frontend Server (Port 3000)...
 start "Frontend Server" cmd /c "cd frontend && npm run dev"
 
 echo.
-echo Othor AI Local Development is starting up!
+echo Klaro Local Development is starting up!
 echo.
 echo Access the application:
 echo   Frontend:  http://localhost:3000

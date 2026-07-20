@@ -7,7 +7,7 @@ import os
 def check_database():
     """Check the database contents and structure."""
     
-    db_path = "data/othor_ai.db"
+    db_path = "data/klaro.db"
     
     if not os.path.exists(db_path):
         print("❌ Database file not found!")

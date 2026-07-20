@@ -1,4 +1,4 @@
-# 🎯 Development Approach - Othor AI Assignment
+# 🎯 Development Approach - Klaro Assignment
 
 ## 📋 Project Philosophy
 

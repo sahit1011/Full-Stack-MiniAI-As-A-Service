@@ -1,8 +1,10 @@
 """
 Model summary and insights API endpoints
 """
+import asyncio
 from fastapi import APIRouter, HTTPException, status, Depends
 from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session
 from datetime import datetime
 from typing import Dict, Any, List
 import logging
@@ -12,7 +14,8 @@ from ..core.ml_processor import ml_processor
 from ..core.file_handler import file_handler
 from ..core.data_processor import data_processor
 from ..core.llm_service import llm_service
-from ..auth.dependencies import get_current_user
+from ..auth.dependencies import get_current_user, verify_model_access, verify_session_access
+from ..database.database import get_db
 from ..database.models import User
 
 # Setup logging
@@ -25,7 +28,8 @@ router = APIRouter(prefix="/summary", tags=["Model Summary"])
 @router.get("/{model_id}", response_model=ModelSummaryResponse)
 async def get_model_summary(
     model_id: str,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ) -> ModelSummaryResponse:
     """
     Get comprehensive summary of a trained model and its dataset.
@@ -61,7 +65,10 @@ async def get_model_summary(
     """
     try:
         logger.info(f"Generating summary for model {model_id}")
-        
+
+        # Ownership check (prevents IDOR)
+        verify_model_access(model_id, current_user, db)
+
         # Get basic model summary
         basic_summary = ml_processor.get_model_summary(model_id)
         
@@ -81,15 +88,18 @@ async def get_model_summary(
                 file_path, metadata['target_column']
             )
         
-        # Generate insights using LLM
+        # Generate traditional (pure-Python) insights — no LLM call here
         insights = _generate_model_insights(metadata, dataset_analysis)
 
-        # Generate LLM-enhanced natural language summary
-        natural_summary = _generate_llm_enhanced_summary(metadata, dataset_analysis, insights)
-
-        # Generate LLM-based insights and recommendations
-        llm_insights = llm_service.generate_insights_and_recommendations(
-            dataset_analysis, metadata, insights.get("evaluation_metrics")
+        # Run the two independent LLM workloads concurrently:
+        #   - the natural-language summary (itself two LLM calls, gathered internally)
+        #   - the insights/recommendations call
+        # This collapses what were sequential ~30s calls into overlapping work.
+        natural_summary, llm_insights = await asyncio.gather(
+            _generate_llm_enhanced_summary(metadata, dataset_analysis, insights),
+            llm_service.generate_insights_and_recommendations(
+                dataset_analysis, metadata, insights.get("evaluation_metrics")
+            ),
         )
 
         # Merge traditional and LLM insights
@@ -171,11 +181,34 @@ def _generate_model_insights(metadata: Dict[str, Any], dataset_analysis: Dict[st
     # Model insights
     algorithm = metadata.get('algorithm', 'unknown')
     problem_type = metadata.get('problem_type', 'unknown')
-    
+
     insights["model_insights"].append(f"Trained a {algorithm} model for {problem_type}")
-    
+
     feature_count = len(metadata.get('feature_names', []))
     insights["model_insights"].append(f"Model uses {feature_count} features for prediction")
+
+    # Surface the REAL, persisted evaluation metrics so downstream LLM prompts are grounded
+    # in actual numbers (this dict was previously dropped, leaving the LLM to invent metrics).
+    evaluation_metrics = metadata.get('evaluation_metrics', {}) or {}
+    insights["evaluation_metrics"] = evaluation_metrics
+    if problem_type == "classification":
+        if evaluation_metrics.get("accuracy") is not None:
+            insights["performance_insights"].append(
+                f"Test accuracy: {evaluation_metrics['accuracy'] * 100:.1f}%"
+            )
+        if evaluation_metrics.get("f1_score") is not None:
+            insights["performance_insights"].append(
+                f"Weighted F1 score: {evaluation_metrics['f1_score']:.3f}"
+            )
+    elif problem_type == "regression":
+        if evaluation_metrics.get("r2_score") is not None:
+            insights["performance_insights"].append(
+                f"R² score: {evaluation_metrics['r2_score']:.3f}"
+            )
+        if evaluation_metrics.get("rmse") is not None:
+            insights["performance_insights"].append(
+                f"RMSE: {evaluation_metrics['rmse']:.4g}"
+            )
     
     # Data insights
     if dataset_analysis:
@@ -218,7 +251,7 @@ def _generate_model_insights(metadata: Dict[str, Any], dataset_analysis: Dict[st
     return insights
 
 
-def _generate_llm_enhanced_summary(
+async def _generate_llm_enhanced_summary(
     metadata: Dict[str, Any],
     dataset_analysis: Dict[str, Any],
     insights: Dict[str, Any]
@@ -228,12 +261,13 @@ def _generate_llm_enhanced_summary(
     # Try LLM-based summary first
     if dataset_analysis:
         try:
-            # Generate dataset summary using LLM
-            dataset_summary = llm_service.generate_dataset_summary(dataset_analysis)
-
-            # Generate model summary using LLM
-            model_summary = llm_service.generate_model_summary(
-                metadata, dataset_analysis, insights.get("evaluation_metrics")
+            # The dataset summary and model summary are independent LLM calls — run them
+            # concurrently. Each method returns its deterministic fallback on failure.
+            dataset_summary, model_summary = await asyncio.gather(
+                llm_service.generate_dataset_summary(dataset_analysis),
+                llm_service.generate_model_summary(
+                    metadata, dataset_analysis, insights.get("evaluation_metrics")
+                ),
             )
 
             # Combine both summaries
@@ -300,7 +334,8 @@ def _generate_fallback_natural_language_summary(
 @router.get("/session/{session_id}")
 async def get_session_summary(
     session_id: str,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ) -> Dict[str, Any]:
     """
     Get summary for a session (dataset analysis without model).
@@ -316,6 +351,9 @@ async def get_session_summary(
     """
     try:
         logger.info(f"Generating session summary for session {session_id}")
+
+        # Ownership check (prevents IDOR)
+        verify_session_access(session_id, current_user, db)
 
         # Get file path for session
         from ..core.file_handler import file_handler
@@ -336,7 +374,7 @@ async def get_session_summary(
         dataset_analysis = data_processor.generate_comprehensive_profile(file_path)
 
         # Generate dataset summary
-        dataset_summary = llm_service.generate_dataset_summary(dataset_analysis)
+        dataset_summary = await llm_service.generate_dataset_summary(dataset_analysis)
 
         # Generate basic insights (simplified for dataset-only analysis)
         llm_insights = {
@@ -359,8 +397,7 @@ async def get_session_summary(
             "dataset_analysis": dataset_analysis,
             "data_quality_score": _calculate_data_quality_score(dataset_analysis),
             "api_info": {
-                "llm_model": "deepseek/deepseek-chat",
-                "api_provider": "OpenRouter",
+                **llm_service.provenance(),
                 "generation_timestamp": datetime.now().isoformat()
             },
             "timestamp": datetime.now().isoformat()
@@ -449,18 +486,22 @@ def _get_preprocessing_summary(metadata: Dict[str, Any]) -> Dict[str, Any]:
 @router.get("/{model_id}/insights")
 async def get_model_insights(
     model_id: str,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ) -> Dict[str, Any]:
     """
     Get detailed insights about a specific model.
-    
+
     **Parameters:**
     - model_id: The model ID to analyze
-    
+
     **Returns:**
     - Detailed insights and recommendations
     """
     try:
+        # Ownership check (prevents IDOR)
+        verify_model_access(model_id, current_user, db)
+
         # Load model metadata
         pipeline, metadata = ml_processor.load_model(model_id)
         
@@ -497,7 +538,8 @@ async def get_model_insights(
 @router.get("/{model_id}/llm-enhanced")
 async def get_llm_enhanced_summary(
     model_id: str,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ) -> Dict[str, Any]:
     """
     Get LLM-enhanced comprehensive summary with natural language insights.
@@ -516,6 +558,9 @@ async def get_llm_enhanced_summary(
     """
     try:
         logger.info(f"Generating LLM-enhanced summary for model {model_id}")
+
+        # Ownership check (prevents IDOR)
+        verify_model_access(model_id, current_user, db)
 
         # Load model and metadata
         pipeline, metadata = ml_processor.load_model(model_id)
@@ -539,11 +584,16 @@ async def get_llm_enhanced_summary(
             file_path, metadata['target_column']
         )
 
-        # Generate LLM-enhanced summaries
-        dataset_summary = llm_service.generate_dataset_summary(dataset_analysis)
-        model_summary = llm_service.generate_model_summary(metadata, dataset_analysis)
-        llm_insights = llm_service.generate_insights_and_recommendations(
-            dataset_analysis, metadata
+        # Generate LLM-enhanced summaries — feed the real persisted metrics so the LLM
+        # is grounded in actual numbers rather than inventing them. The three calls are
+        # independent, so run them concurrently instead of sequentially.
+        evaluation_metrics = metadata.get('evaluation_metrics', {}) or {}
+        dataset_summary, model_summary, llm_insights = await asyncio.gather(
+            llm_service.generate_dataset_summary(dataset_analysis),
+            llm_service.generate_model_summary(metadata, dataset_analysis, evaluation_metrics),
+            llm_service.generate_insights_and_recommendations(
+                dataset_analysis, metadata, evaluation_metrics
+            ),
         )
 
         # Prepare response
@@ -567,8 +617,7 @@ async def get_llm_enhanced_summary(
                 "data_quality_score": _calculate_data_quality_score(dataset_analysis)
             },
             "api_info": {
-                "llm_model": "deepseek/deepseek-chat",
-                "api_provider": "OpenRouter",
+                **llm_service.provenance(),
                 "generation_timestamp": datetime.now().isoformat()
             },
             "timestamp": datetime.now().isoformat()

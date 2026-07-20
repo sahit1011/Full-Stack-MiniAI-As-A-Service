@@ -3,14 +3,16 @@ Model prediction API endpoints
 """
 from fastapi import APIRouter, HTTPException, status, Depends
 from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session
 from datetime import datetime
 from typing import Dict, Any, List
 import logging
 
 from ..models.prediction import PredictRequest, PredictResponse, PredictionResult
 from ..core.ml_processor import ml_processor
-from ..auth.dependencies import get_current_user
-from ..database.models import User
+from ..auth.dependencies import get_current_user, verify_model_access
+from ..database.database import get_db
+from ..database.models import User, ModelMetadata
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -22,7 +24,8 @@ router = APIRouter(prefix="/predict", tags=["Model Prediction"])
 @router.post("/", response_model=PredictResponse)
 async def make_predictions(
     request: PredictRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ) -> PredictResponse:
     """
     Make predictions using a trained model.
@@ -98,6 +101,9 @@ async def make_predictions(
                 }
             )
         
+        # Ownership check — only the model's owner may use it (prevents IDOR)
+        verify_model_access(request.model_id, current_user, db)
+
         # Make predictions
         prediction_result = ml_processor.predict(request.model_id, request.data)
         
@@ -108,8 +114,10 @@ async def make_predictions(
         for pred_data in prediction_result["predictions"]:
             prediction_obj = PredictionResult(
                 prediction=pred_data["prediction"],
-                confidence=pred_data["confidence"],
-                probabilities=pred_data.get("probabilities")
+                confidence=pred_data.get("confidence"),
+                probabilities=pred_data.get("probabilities"),
+                interval_low=pred_data.get("interval_low"),
+                interval_high=pred_data.get("interval_high"),
             )
             prediction_objects.append(prediction_obj)
         
@@ -165,7 +173,8 @@ async def make_predictions(
 async def make_batch_predictions(
     model_id: str,
     data: List[Dict[str, Any]],
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ) -> Dict[str, Any]:
     """
     Alternative endpoint for batch predictions with simpler input format.
@@ -180,9 +189,10 @@ async def make_batch_predictions(
     try:
         # Create request object
         request = PredictRequest(model_id=model_id, data=data)
-        
-        # Use the main prediction endpoint
-        response = await make_predictions(request)
+
+        # Use the main prediction endpoint (pass current_user + db explicitly — when called
+        # directly like this, FastAPI's dependency injection does NOT run)
+        response = await make_predictions(request, current_user, db)
         
         # Return simplified format
         return {
@@ -205,55 +215,43 @@ async def make_batch_predictions(
 
 
 @router.get("/models")
-async def list_available_models() -> Dict[str, Any]:
+async def list_available_models(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
     """
-    List all available trained models.
-    
+    List the current user's trained models (scoped to the authenticated user via the
+    DB — no longer a public filesystem scan, which exposed every user's models).
+
     **Returns:**
-    - List of available models with basic information
+    - List of the user's models with basic information
     """
     try:
-        import os
-        from pathlib import Path
-        
-        models_dir = Path("data/models")
-        if not models_dir.exists():
-            return {"models": [], "count": 0}
-        
-        models = []
-        model_files = [f for f in os.listdir(models_dir) if f.endswith('.joblib') and not f.endswith('_metadata.joblib')]
-        
-        for model_file in model_files:
-            model_id = model_file.replace('.joblib', '')
-            try:
-                # Try to load model metadata
-                pipeline, metadata = ml_processor.load_model(model_id)
-                
-                model_info = {
-                    "model_id": model_id,
-                    "algorithm": metadata.get("algorithm", "unknown"),
-                    "problem_type": metadata.get("problem_type", "unknown"),
-                    "target_column": metadata.get("target_column", "unknown"),
-                    "session_id": metadata.get("session_id", "unknown"),
-                    "feature_count": len(metadata.get("feature_names", [])),
-                    "status": "available"
-                }
-                models.append(model_info)
-                
-            except Exception as e:
-                # If model can't be loaded, mark as corrupted
-                models.append({
-                    "model_id": model_id,
-                    "status": "corrupted",
-                    "error": str(e)
-                })
-        
+        models = (
+            db.query(ModelMetadata)
+            .filter(ModelMetadata.user_id == current_user.id)
+            .order_by(ModelMetadata.created_at.desc())
+            .all()
+        )
+
         return {
-            "models": models,
+            "models": [
+                {
+                    "model_id": m.model_id,
+                    "model_name": m.model_name,
+                    "algorithm": m.algorithm,
+                    "problem_type": m.model_type,
+                    "target_column": m.target_column,
+                    "feature_count": m.num_features,
+                    "status": m.status,
+                    "created_at": m.created_at.isoformat() if m.created_at else None,
+                }
+                for m in models
+            ],
             "count": len(models),
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
-        
+
     except Exception as e:
         logger.error(f"Error listing models: {str(e)}")
         raise HTTPException(
@@ -261,35 +259,45 @@ async def list_available_models() -> Dict[str, Any]:
             detail={
                 "error": "MODEL_LIST_ERROR",
                 "message": "Failed to list available models",
-                "details": str(e)
-            }
+                "details": str(e),
+            },
         )
 
 
 @router.get("/model/{model_id}/info")
 async def get_model_info(
     model_id: str,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ) -> Dict[str, Any]:
     """
     Get detailed information about a specific model.
-    
+
     **Parameters:**
     - model_id: The model ID to get information for
-    
+
     **Returns:**
     - Detailed model information including features and metadata
     """
     try:
+        # Ownership check — only the owner may inspect this model (prevents IDOR).
+        # The returned row also carries the real, persisted evaluation metrics.
+        model_meta = verify_model_access(model_id, current_user, db)
+
         # Load model and metadata
         pipeline, metadata = ml_processor.load_model(model_id)
-        
+
+        # Prefer the metrics persisted at training time (authoritative); fall back
+        # to whatever the on-disk metadata recorded. Never fabricate a score.
+        metrics = model_meta.evaluation_metrics or metadata.get("evaluation_metrics", {}) or {}
+
         return {
             "model_id": model_id,
             "algorithm": metadata.get("algorithm", "unknown"),
             "problem_type": metadata.get("problem_type", "unknown"),
             "target_column": metadata.get("target_column", "unknown"),
             "session_id": metadata.get("session_id", "unknown"),
+            "metrics": metrics,
             "features": {
                 "all_features": metadata.get("feature_names", []),
                 "numerical_features": metadata.get("preprocessing_info", {}).get("numerical_cols", []),

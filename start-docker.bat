@@ -1,8 +1,8 @@
 @echo off
-REM Othor AI - Docker Startup Script for Windows
+REM Klaro - Docker Startup Script for Windows
 REM This script makes it easy for recruiters to start the application
 
-echo 🚀 Starting Othor AI - Mini AI Analyst as a Service
+echo 🚀 Starting Klaro - Mini AI Analyst as a Service
 echo ==================================================
 
 REM Check if Docker is installed
@@ -80,7 +80,7 @@ if %errorlevel% equ 0 (
 )
 
 echo.
-echo 🎉 Othor AI is starting up!
+echo 🎉 Klaro is starting up!
 echo.
 echo 📱 Access the application:
 echo    Frontend:  http://localhost:3000

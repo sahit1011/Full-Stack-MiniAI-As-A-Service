@@ -5,48 +5,31 @@ import { usePathname } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import { useAuthRedirect } from '@/hooks/useAuthRedirect'
 import { Button } from '@/components/ui/button'
-import { 
-  Home, 
-  Upload, 
-  BarChart3, 
-  Brain, 
-  Zap, 
-  History, 
-  User, 
+import {
+  Home,
+  Upload,
+  Cpu,
+  History,
   LogOut,
   Menu,
-  X
+  X,
 } from 'lucide-react'
 import { useState } from 'react'
+import { cn } from '@/lib/utils'
 
 interface NavigationItem {
   name: string
   href: string
   icon: React.ComponentType<{ className?: string }>
-  description: string
   requiresAuth?: boolean
+  authRedirect?: boolean
 }
 
 const navigation: NavigationItem[] = [
-  {
-    name: 'Home',
-    href: '/',
-    icon: Home,
-    description: 'Dashboard overview'
-  },
-  {
-    name: 'Upload',
-    href: '/upload',
-    icon: Upload,
-    description: 'Upload CSV files for analysis'
-  },
-  {
-    name: 'History',
-    href: '/history',
-    icon: History,
-    description: 'View your files and models',
-    requiresAuth: true
-  }
+  { name: 'Home', href: '/', icon: Home },
+  { name: 'Upload', href: '/upload', icon: Upload, authRedirect: true },
+  { name: 'Models', href: '/models', icon: Cpu, requiresAuth: true },
+  { name: 'History', href: '/history', icon: History, requiresAuth: true },
 ]
 
 export default function Navigation() {
@@ -55,354 +38,157 @@ export default function Navigation() {
   const { handleAuthRedirect } = useAuthRedirect()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
-  const isCurrentPath = (href: string) => {
-    if (href === '/') {
-      return pathname === '/'
-    }
-    return pathname.startsWith(href)
-  }
+  const isCurrentPath = (href: string) =>
+    href === '/' ? pathname === '/' : pathname.startsWith(href)
 
-  const filteredNavigation = navigation.filter(item =>
-    !item.requiresAuth || isAuthenticated
+  const filteredNavigation = navigation.filter(
+    (item) => !item.requiresAuth || isAuthenticated
+  )
+
+  const Logo = ({ compact = false }: { compact?: boolean }) => (
+    <Link href="/" className="flex items-center gap-2.5">
+      <div className="flex h-8 w-8 items-center justify-center rounded-md bg-brand-gradient text-primary-foreground glow-primary">
+        <Cpu className="h-4 w-4" />
+      </div>
+      <div className="leading-tight">
+        <span className="block text-sm font-semibold text-foreground">Klaro</span>
+        {!compact && <span className="block text-xs text-muted-foreground">Mini AI Analyst</span>}
+      </div>
+    </Link>
   )
 
   return (
     <>
-      {/* Desktop Navigation */}
-      <nav className="hidden md:flex fixed top-0 left-0 right-0 z-50 bg-black/10 backdrop-blur-xl border-b border-white/5 shadow-2xl">
-        <div className="max-w-7xl mx-auto px-6 lg:px-8 w-full">
-          <div className="flex justify-between items-center h-20">
-            {/* Logo with enhanced styling */}
-            <Link href="/" className="group flex items-center space-x-3 transition-all duration-300 hover:scale-105">
-              <div className="relative">
-                <div className="w-12 h-12 bg-gradient-to-br from-purple-500 via-blue-500 to-cyan-500 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-purple-500/25 transition-all duration-300 group-hover:rotate-3">
-                  <Brain className="h-6 w-6 text-white" />
-                </div>
-                <div className="absolute inset-0 bg-gradient-to-br from-purple-500 via-blue-500 to-cyan-500 rounded-xl blur-md opacity-0 group-hover:opacity-30 transition-opacity duration-300"></div>
-              </div>
-              <div className="transition-all duration-300">
-                <h1 className="text-xl font-bold text-white group-hover:text-purple-200">Othor AI</h1>
-                <p className="text-sm text-gray-300 group-hover:text-purple-300">Mini AI Analyst</p>
-              </div>
-            </Link>
+      {/* Desktop */}
+      <nav className="fixed inset-x-0 top-0 z-50 hidden border-b border-border bg-background/80 backdrop-blur md:block">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
+          <Logo />
 
-            {/* Navigation Links with enhanced card effects */}
-            <div className="flex items-center space-x-2">
+          <div className="flex items-center gap-1">
+            {filteredNavigation.map((item) => {
+              const Icon = item.icon
+              const active = isCurrentPath(item.href)
+              const classes = cn(
+                'relative flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                active
+                  ? 'text-primary'
+                  : 'text-muted-foreground hover:bg-elevated hover:text-foreground'
+              )
+              const inner = (
+                <>
+                  <Icon className="h-4 w-4" />
+                  <span>{item.name}</span>
+                  {active && (
+                    <span className="absolute inset-x-2 -bottom-px h-px bg-primary" />
+                  )}
+                </>
+              )
+              return item.authRedirect ? (
+                <button key={item.name} onClick={() => handleAuthRedirect(item.href)} className={classes}>
+                  {inner}
+                </button>
+              ) : (
+                <Link key={item.name} href={item.href} className={classes}>
+                  {inner}
+                </Link>
+              )
+            })}
+          </div>
+
+          <div className="flex items-center gap-3">
+            {isAuthenticated ? (
+              <>
+                <div className="hidden text-right lg:block">
+                  <p className="text-sm font-medium text-foreground">{user?.full_name || user?.username}</p>
+                  <p className="text-xs text-muted-foreground">{user?.email}</p>
+                </div>
+                <Button variant="ghost" size="icon" onClick={logout} aria-label="Log out">
+                  <LogOut className="h-4 w-4" />
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button asChild variant="ghost" size="sm">
+                  <Link href="/login">Log in</Link>
+                </Button>
+                <Button asChild size="sm">
+                  <Link href="/signup">Sign up</Link>
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+      </nav>
+
+      {/* Mobile */}
+      <nav className="fixed inset-x-0 top-0 z-50 border-b border-border bg-background/80 backdrop-blur md:hidden">
+        <div className="flex h-16 items-center justify-between px-4">
+          <Logo compact />
+          <Button variant="ghost" size="icon" onClick={() => setMobileMenuOpen((v) => !v)} aria-label="Menu">
+            {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </Button>
+        </div>
+
+        {mobileMenuOpen && (
+          <div className="border-t border-border bg-background px-3 pb-4 pt-2">
+            <div className="space-y-1">
               {filteredNavigation.map((item) => {
                 const Icon = item.icon
-                const isActive = isCurrentPath(item.href)
-
-                // Handle Upload link with auth redirect
-                if (item.name === 'Upload') {
-                  return (
-                    <button
-                      key={item.name}
-                      onClick={() => handleAuthRedirect(item.href)}
-                      className={`group relative flex items-center space-x-2 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-300 transform hover:scale-105 ${
-                        isActive
-                          ? 'bg-gradient-to-r from-purple-500/20 to-blue-500/20 text-white shadow-lg shadow-purple-500/25 border border-purple-500/30'
-                          : 'text-gray-300 hover:text-white hover:bg-white/10 hover:shadow-lg hover:shadow-white/10'
-                      }`}
-                    >
-                      {/* Background glow effect */}
-                      <div className={`absolute inset-0 rounded-xl transition-opacity duration-300 ${
-                        isActive
-                          ? 'bg-gradient-to-r from-purple-500/10 to-blue-500/10 opacity-100'
-                          : 'bg-white/5 opacity-0 group-hover:opacity-100'
-                      }`}></div>
-
-                      {/* Icon */}
-                      <div className="relative z-10">
-                        <Icon className="h-4 w-4" />
-                      </div>
-
-                      {/* Text */}
-                      <span className="relative z-10">{item.name}</span>
-
-                      {/* Hover indicator */}
-                      <div className={`absolute bottom-0 left-1/2 transform -translate-x-1/2 w-0 h-0.5 bg-gradient-to-r from-purple-400 to-blue-400 transition-all duration-300 ${
-                        isActive ? 'w-full' : 'group-hover:w-full'
-                      }`}></div>
-                    </button>
-                  )
-                }
-
-                return (
-                  <Link
+                const active = isCurrentPath(item.href)
+                const classes = cn(
+                  'flex w-full items-center gap-3 rounded-md px-3 py-3 text-sm font-medium transition-colors',
+                  active ? 'bg-elevated text-primary' : 'text-muted-foreground hover:bg-elevated hover:text-foreground'
+                )
+                const inner = (
+                  <>
+                    <Icon className="h-5 w-5" />
+                    <span>{item.name}</span>
+                  </>
+                )
+                return item.authRedirect ? (
+                  <button
                     key={item.name}
-                    href={item.href}
-                    className={`group relative flex items-center space-x-2 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-300 transform hover:scale-105 ${
-                      isActive
-                        ? 'bg-gradient-to-r from-purple-500/20 to-blue-500/20 text-white shadow-lg shadow-purple-500/25 border border-purple-500/30'
-                        : 'text-gray-300 hover:text-white hover:bg-white/10 hover:shadow-lg hover:shadow-white/10'
-                    }`}
+                    onClick={() => { setMobileMenuOpen(false); handleAuthRedirect(item.href) }}
+                    className={classes}
                   >
-                    {/* Background glow effect */}
-                    <div className={`absolute inset-0 rounded-xl transition-opacity duration-300 ${
-                      isActive
-                        ? 'bg-gradient-to-r from-purple-500/10 to-blue-500/10 opacity-100'
-                        : 'bg-white/5 opacity-0 group-hover:opacity-100'
-                    }`}></div>
-
-                    {/* Content */}
-                    <div className="relative flex items-center space-x-2">
-                      <Icon className={`h-4 w-4 transition-all duration-300 ${
-                        isActive ? 'text-purple-300' : 'group-hover:text-purple-300'
-                      }`} />
-                      <span className="transition-all duration-300">{item.name}</span>
-                    </div>
-
-                    {/* Expanding underline effect */}
-                    <div className={`absolute bottom-0 left-1/2 h-0.5 bg-gradient-to-r from-purple-500 to-blue-500 transition-all duration-300 ${
-                      isActive
-                        ? 'w-full -translate-x-1/2'
-                        : 'w-0 group-hover:w-full -translate-x-1/2'
-                    }`}></div>
+                    {inner}
+                  </button>
+                ) : (
+                  <Link key={item.name} href={item.href} onClick={() => setMobileMenuOpen(false)} className={classes}>
+                    {inner}
                   </Link>
                 )
               })}
             </div>
 
-            {/* User Menu with enhanced styling */}
-            <div className="flex items-center space-x-4">
+            <div className="mt-4 border-t border-border pt-4">
               {isAuthenticated ? (
-                <div className="flex items-center space-x-4">
-                  <div className="hidden lg:block text-right">
-                    <p className="text-sm font-medium text-white">
-                      {user?.full_name || user?.username}
-                    </p>
-                    <p className="text-xs text-purple-300">{user?.email}</p>
+                <div className="space-y-3">
+                  <div className="rounded-md border border-border bg-card px-3 py-2">
+                    <p className="text-sm font-medium text-foreground">{user?.full_name || user?.username}</p>
+                    <p className="text-xs text-muted-foreground">{user?.email}</p>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={logout}
-                    className="group relative px-4 py-2 text-gray-300 hover:text-white hover:bg-red-500/20 hover:border-red-500/30 border border-transparent rounded-xl transition-all duration-300 hover:shadow-lg hover:shadow-red-500/25 hover:scale-105"
-                  >
-                    <LogOut className="h-4 w-4 group-hover:text-red-300 transition-colors duration-300" />
+                  <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => { logout(); setMobileMenuOpen(false) }}>
+                    <LogOut className="mr-2 h-4 w-4" /> Log out
                   </Button>
                 </div>
               ) : (
-                <div className="flex items-center space-x-3">
-                  <Link href="/login">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="group relative px-6 py-2 text-gray-300 hover:text-white hover:bg-white/10 border border-white/20 rounded-xl transition-all duration-300 hover:shadow-lg hover:shadow-white/10 hover:scale-105 hover:border-white/40"
-                    >
-                      <span className="relative z-10">Login</span>
-                      <div className="absolute inset-0 bg-gradient-to-r from-purple-500/10 to-blue-500/10 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                    </Button>
-                  </Link>
-                  <Link href="/signup">
-                    <Button
-                      size="sm"
-                      className="group relative px-6 py-2 bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 text-white rounded-xl transition-all duration-300 hover:shadow-lg hover:shadow-purple-500/50 hover:scale-105 transform"
-                    >
-                      <span className="relative z-10 font-medium">Sign Up</span>
-                      <div className="absolute inset-0 bg-gradient-to-r from-purple-400 to-blue-400 rounded-xl opacity-0 group-hover:opacity-20 transition-opacity duration-300"></div>
-                    </Button>
-                  </Link>
+                <div className="space-y-2">
+                  <Button asChild variant="outline" size="sm" className="w-full">
+                    <Link href="/login" onClick={() => setMobileMenuOpen(false)}>Log in</Link>
+                  </Button>
+                  <Button asChild size="sm" className="w-full">
+                    <Link href="/signup" onClick={() => setMobileMenuOpen(false)}>Sign up</Link>
+                  </Button>
                 </div>
               )}
             </div>
           </div>
-        </div>
+        )}
       </nav>
 
-      {/* Mobile Navigation */}
-      <nav className="md:hidden fixed top-0 left-0 right-0 z-50 bg-black/10 backdrop-blur-xl border-b border-white/5 shadow-2xl">
-        <div className="px-4">
-          <div className="flex justify-between items-center h-20">
-            {/* Logo */}
-            <Link href="/" className="group flex items-center space-x-3 transition-all duration-300">
-              <div className="relative">
-                <div className="w-10 h-10 bg-gradient-to-br from-purple-500 via-blue-500 to-cyan-500 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-purple-500/25 transition-all duration-300">
-                  <Brain className="h-5 w-5 text-white" />
-                </div>
-                <div className="absolute inset-0 bg-gradient-to-br from-purple-500 via-blue-500 to-cyan-500 rounded-xl blur-md opacity-0 group-hover:opacity-30 transition-opacity duration-300"></div>
-              </div>
-              <span className="text-lg font-bold text-white group-hover:text-purple-200 transition-colors duration-300">Othor AI</span>
-            </Link>
-
-            {/* Mobile Menu Button */}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="group relative p-3 text-white hover:bg-white/10 rounded-xl transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-white/10"
-            >
-              <div className="relative z-10">
-                {mobileMenuOpen ? (
-                  <X className="h-6 w-6 group-hover:text-purple-300 transition-colors duration-300" />
-                ) : (
-                  <Menu className="h-6 w-6 group-hover:text-purple-300 transition-colors duration-300" />
-                )}
-              </div>
-              <div className="absolute inset-0 bg-gradient-to-r from-purple-500/10 to-blue-500/10 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-            </Button>
-          </div>
-
-          {/* Mobile Menu */}
-          {mobileMenuOpen && (
-            <div className="pb-6 border-t border-white/10 mt-4 bg-black/20 backdrop-blur-sm rounded-b-2xl">
-              <div className="space-y-3 pt-6 px-2">
-                {filteredNavigation.map((item, index) => {
-                  const Icon = item.icon
-                  const isActive = isCurrentPath(item.href)
-
-                  // Handle Upload link with auth redirect for mobile
-                  if (item.name === 'Upload') {
-                    return (
-                      <button
-                        key={item.name}
-                        onClick={() => {
-                          setMobileMenuOpen(false)
-                          handleAuthRedirect(item.href)
-                        }}
-                        className={`group relative flex items-center space-x-4 px-4 py-4 rounded-xl text-sm font-medium transition-all duration-300 transform hover:scale-[1.02] w-full ${
-                          isActive
-                            ? 'bg-gradient-to-r from-purple-500/20 to-blue-500/20 text-white shadow-lg shadow-purple-500/25 border border-purple-500/30'
-                            : 'text-gray-300 hover:text-white hover:bg-white/10 hover:shadow-lg hover:shadow-white/10'
-                        }`}
-                        style={{ animationDelay: `${index * 50}ms` }}
-                      >
-                        {/* Background glow effect */}
-                        <div className={`absolute inset-0 rounded-xl transition-opacity duration-300 ${
-                          isActive
-                            ? 'bg-gradient-to-r from-purple-500/10 to-blue-500/10 opacity-100'
-                            : 'bg-white/5 opacity-0 group-hover:opacity-100'
-                        }`}></div>
-
-                        {/* Content */}
-                        <div className="relative flex items-center space-x-4 w-full">
-                          <div className={`p-2 rounded-lg transition-all duration-300 ${
-                            isActive
-                              ? 'bg-purple-500/20 text-purple-300'
-                              : 'bg-white/10 text-gray-400 group-hover:bg-purple-500/20 group-hover:text-purple-300'
-                          }`}>
-                            <Icon className="h-5 w-5" />
-                          </div>
-
-                          <div className="flex-1">
-                            <div className="font-medium">{item.name}</div>
-                            <div className="text-xs text-gray-400 group-hover:text-gray-300 transition-colors">
-                              {item.description}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Active indicator */}
-                        <div className={`absolute right-2 w-2 h-2 rounded-full transition-all duration-300 ${
-                          isActive
-                            ? 'bg-purple-400 scale-100'
-                            : 'bg-transparent scale-0 group-hover:bg-purple-400/50 group-hover:scale-100'
-                        }`}></div>
-                      </button>
-                    )
-                  }
-
-                  return (
-                    <Link
-                      key={item.name}
-                      href={item.href}
-                      onClick={() => setMobileMenuOpen(false)}
-                      className={`group relative flex items-center space-x-4 px-4 py-4 rounded-xl text-sm font-medium transition-all duration-300 transform hover:scale-[1.02] ${
-                        isActive
-                          ? 'bg-gradient-to-r from-purple-500/20 to-blue-500/20 text-white shadow-lg shadow-purple-500/25 border border-purple-500/30'
-                          : 'text-gray-300 hover:text-white hover:bg-white/10 hover:shadow-lg hover:shadow-white/10'
-                      }`}
-                      style={{ animationDelay: `${index * 50}ms` }}
-                    >
-                      {/* Background glow effect */}
-                      <div className={`absolute inset-0 rounded-xl transition-opacity duration-300 ${
-                        isActive
-                          ? 'bg-gradient-to-r from-purple-500/10 to-blue-500/10 opacity-100'
-                          : 'bg-white/5 opacity-0 group-hover:opacity-100'
-                      }`}></div>
-
-                      {/* Content */}
-                      <div className="relative flex items-center space-x-4 w-full">
-                        <div className={`p-2 rounded-lg transition-all duration-300 ${
-                          isActive
-                            ? 'bg-purple-500/20 text-purple-300'
-                            : 'bg-white/10 text-gray-400 group-hover:bg-purple-500/20 group-hover:text-purple-300'
-                        }`}>
-                          <Icon className="h-5 w-5" />
-                        </div>
-                        <div className="flex-1">
-                          <div className="font-medium">{item.name}</div>
-                          <div className="text-xs text-gray-400 group-hover:text-purple-300 transition-colors duration-300">{item.description}</div>
-                        </div>
-                      </div>
-
-                      {/* Expanding border effect */}
-                      <div className={`absolute left-0 top-1/2 w-1 bg-gradient-to-b from-purple-500 to-blue-500 rounded-r-full transition-all duration-300 ${
-                        isActive
-                          ? 'h-full -translate-y-1/2'
-                          : 'h-0 group-hover:h-full -translate-y-1/2'
-                      }`}></div>
-                    </Link>
-                  )
-                })}
-              </div>
-
-              {/* Mobile User Menu */}
-              <div className="mt-6 pt-6 border-t border-white/10 px-2">
-                {isAuthenticated ? (
-                  <div className="space-y-4">
-                    <div className="px-4 py-3 bg-white/5 rounded-xl border border-white/10">
-                      <p className="text-sm font-medium text-white">
-                        {user?.full_name || user?.username}
-                      </p>
-                      <p className="text-xs text-purple-300">{user?.email}</p>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        logout()
-                        setMobileMenuOpen(false)
-                      }}
-                      className="group relative w-full justify-start px-4 py-3 text-gray-300 hover:text-white hover:bg-red-500/20 hover:border-red-500/30 border border-transparent rounded-xl transition-all duration-300 hover:shadow-lg hover:shadow-red-500/25"
-                    >
-                      <LogOut className="h-4 w-4 mr-3 group-hover:text-red-300 transition-colors duration-300" />
-                      <span className="font-medium">Logout</span>
-                      <div className="absolute inset-0 bg-gradient-to-r from-red-500/10 to-red-600/10 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    <Link href="/login" onClick={() => setMobileMenuOpen(false)}>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="group relative w-full justify-start px-4 py-3 text-gray-300 hover:text-white hover:bg-white/10 border border-white/20 rounded-xl transition-all duration-300 hover:shadow-lg hover:shadow-white/10 hover:border-white/40"
-                      >
-                        <User className="h-4 w-4 mr-3 group-hover:text-purple-300 transition-colors duration-300" />
-                        <span className="font-medium">Login</span>
-                        <div className="absolute inset-0 bg-gradient-to-r from-purple-500/10 to-blue-500/10 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                      </Button>
-                    </Link>
-                    <Link href="/signup" onClick={() => setMobileMenuOpen(false)}>
-                      <Button
-                        size="sm"
-                        className="group relative w-full px-4 py-3 bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 text-white rounded-xl transition-all duration-300 hover:shadow-lg hover:shadow-purple-500/50 transform hover:scale-[1.02]"
-                      >
-                        <span className="relative z-10 font-medium">Sign Up</span>
-                        <div className="absolute inset-0 bg-gradient-to-r from-purple-400 to-blue-400 rounded-xl opacity-0 group-hover:opacity-20 transition-opacity duration-300"></div>
-                      </Button>
-                    </Link>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      </nav>
-
-      {/* Spacer for fixed navigation */}
-      <div className="h-20"></div>
+      {/* Spacer for fixed nav */}
+      <div className="h-16" />
     </>
   )
 }

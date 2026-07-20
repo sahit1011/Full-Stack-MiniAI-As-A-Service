@@ -12,14 +12,13 @@ const Progress = React.forwardRef<
 >(({ className, value, variant = "default", ...props }, ref) => {
   const getIndicatorClass = () => {
     switch (variant) {
-      case "gradient":
-        return "bg-gradient-to-r from-purple-600 to-pink-600"
       case "success":
-        return "bg-green-500"
+        return "bg-success"
       case "warning":
-        return "bg-yellow-500"
+        return "bg-warning"
       case "error":
-        return "bg-red-500"
+        return "bg-destructive"
+      case "gradient":
       default:
         return "bg-primary"
     }
@@ -29,7 +28,7 @@ const Progress = React.forwardRef<
     <ProgressPrimitive.Root
       ref={ref}
       className={cn(
-        "relative h-2 w-full overflow-hidden rounded-full bg-secondary",
+        "relative h-2 w-full overflow-hidden rounded-full bg-muted",
         className
       )}
       {...props}

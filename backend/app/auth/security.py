@@ -21,7 +21,34 @@ except Exception as e:
     pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__default_rounds=12)
 
 # JWT configuration
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-this-in-production")
+# SECRET_KEY must be provided via env. We refuse to run on a placeholder in production
+# (a known/committed signing key lets anyone forge tokens). In DEBUG we fall back to a
+# random ephemeral key so local dev still works (tokens simply reset on restart).
+_PLACEHOLDER_SECRETS = {
+    None,
+    "",
+    "your-secret-key-change-this-in-production",
+    "your-secret-key",
+    "changeme",
+    "change-this-in-production",
+    "secret",
+}
+SECRET_KEY = os.getenv("SECRET_KEY")
+if SECRET_KEY in _PLACEHOLDER_SECRETS:
+    if os.getenv("DEBUG", "True").lower() == "true":
+        import secrets as _secrets
+        SECRET_KEY = _secrets.token_urlsafe(48)
+        warnings.warn(
+            "SECRET_KEY is not set — generated a random ephemeral key for DEBUG mode only. "
+            "Set a strong, unique SECRET_KEY env var before deploying.",
+            RuntimeWarning,
+        )
+    else:
+        raise RuntimeError(
+            "SECRET_KEY must be set to a strong, unique value via the SECRET_KEY env var. "
+            "Refusing to start with a missing or placeholder key in production."
+        )
+
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 

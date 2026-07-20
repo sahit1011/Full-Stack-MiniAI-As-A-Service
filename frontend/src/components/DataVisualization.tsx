@@ -13,7 +13,6 @@ import {
   PieChart,
   Pie,
   Cell,
-  ScatterPlot,
   Scatter,
   LineChart,
   Line,
@@ -62,32 +61,38 @@ interface DataVisualizationProps {
   }
 }
 
-// Enhanced color palettes for professional visualizations
-const COLORS = {
-  primary: ['#8b5cf6', '#a855f7', '#c084fc', '#d8b4fe', '#e9d5ff'],
-  quality: ['#10b981', '#f59e0b', '#ef4444'],
-  distribution: ['#3b82f6', '#06b6d4', '#8b5cf6', '#ec4899', '#f59e0b'],
-  correlation: ['#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#10b981'],
-  gradient: {
-    excellent: '#10b981',
-    good: '#22c55e',
-    fair: '#f59e0b',
-    poor: '#ef4444'
-  }
+// Tokenized chart palette (chart-1=cyan, 2=green, 3=amber, 4=violet, 5=magenta, 6=blue)
+const CHART = [
+  'hsl(var(--chart-1))',
+  'hsl(var(--chart-2))',
+  'hsl(var(--chart-3))',
+  'hsl(var(--chart-4))',
+  'hsl(var(--chart-5))',
+  'hsl(var(--chart-6))'
+]
+
+// Shared recharts tooltip styling
+const TOOLTIP_STYLE = {
+  contentStyle: {
+    background: 'hsl(var(--card))',
+    border: '1px solid hsl(var(--border))',
+    borderRadius: '8px',
+    color: 'hsl(var(--foreground))'
+  },
+  itemStyle: { color: 'hsl(var(--foreground))' },
+  labelStyle: { color: 'hsl(var(--muted-foreground))' }
 }
 
 const getQualityColor = (score: number) => {
-  if (score >= 90) return 'text-green-400'
-  if (score >= 70) return 'text-yellow-400'
-  if (score >= 50) return 'text-orange-400'
-  return 'text-red-400'
+  if (score >= 70) return 'text-success'
+  if (score >= 50) return 'text-warning'
+  return 'text-destructive'
 }
 
 const getQualityBadge = (score: number) => {
-  if (score >= 90) return { label: 'Excellent', color: 'bg-green-500' }
-  if (score >= 70) return { label: 'Good', color: 'bg-yellow-500' }
-  if (score >= 50) return { label: 'Fair', color: 'bg-orange-500' }
-  return { label: 'Poor', color: 'bg-red-500' }
+  if (score >= 70) return { label: score >= 90 ? 'Excellent' : 'Good', color: 'bg-success text-success-foreground' }
+  if (score >= 50) return { label: 'Fair', color: 'bg-warning text-warning-foreground' }
+  return { label: 'Poor', color: 'bg-destructive text-destructive-foreground' }
 }
 
 const formatNumber = (num: number) => {
@@ -142,7 +147,7 @@ export function DataVisualization({ columnProfiles, correlations, datasetInfo }:
      qualityMetrics.validity * 0.2)
   )
 
-  // Strong correlations (|r| > 0.5)
+  // Strong correlations (|r| &gt; 0.5)
   const strongCorrelations = correlations
     .filter(corr => Math.abs(corr.correlation) > 0.5)
     .sort((a, b) => Math.abs(b.correlation) - Math.abs(a.correlation))
@@ -166,25 +171,25 @@ export function DataVisualization({ columnProfiles, correlations, datasetInfo }:
   const qualityData = [
     {
       metric: 'Complete Data',
-      value: ((datasetInfo.rows * Object.keys(columnProfiles).length - datasetInfo.missing_values_total) / 
+      value: ((datasetInfo.rows * Object.keys(columnProfiles).length - datasetInfo.missing_values_total) /
               (datasetInfo.rows * Object.keys(columnProfiles).length) * 100),
-      color: '#10b981'
+      color: CHART[1]
     },
     {
       metric: 'Missing Data',
-      value: (datasetInfo.missing_values_total / 
+      value: (datasetInfo.missing_values_total /
               (datasetInfo.rows * Object.keys(columnProfiles).length) * 100),
-      color: '#ef4444'
+      color: CHART[4]
     },
     {
       metric: 'Unique Rows',
       value: ((datasetInfo.rows - datasetInfo.duplicate_rows) / datasetInfo.rows * 100),
-      color: '#06b6d4'
+      color: CHART[0]
     },
     {
       metric: 'Duplicate Rows',
       value: (datasetInfo.duplicate_rows / datasetInfo.rows * 100),
-      color: '#f59e0b'
+      color: CHART[2]
     }
   ]
 
@@ -205,26 +210,28 @@ export function DataVisualization({ columnProfiles, correlations, datasetInfo }:
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
       >
-        <Card className="glass border-purple-500/30">
+        <Card className="border border-border bg-card">
           <CardHeader>
-            <CardTitle className="text-white flex items-center">
-              <SparklesIcon className="w-6 h-6 mr-3 text-purple-400" />
+            <CardTitle className="text-foreground flex items-center">
+              <span className="w-9 h-9 mr-3 flex items-center justify-center rounded-lg bg-gradient-to-br from-cyan-500/25 to-blue-500/25 text-cyan-300">
+                <SparklesIcon className="w-5 h-5" />
+              </span>
               Data Quality Assessment
               <Badge className={`ml-3 ${getQualityBadge(overallQualityScore).color}`}>
                 {getQualityBadge(overallQualityScore).label}
               </Badge>
             </CardTitle>
-            <CardDescription className="text-purple-200">
+            <CardDescription className="text-muted-foreground">
               Comprehensive analysis of your dataset's quality and characteristics
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
               {[
-                { metric: 'Completeness', value: qualityMetrics.completeness, color: COLORS.quality[0] },
-                { metric: 'Uniqueness', value: qualityMetrics.uniqueness, color: COLORS.quality[1] },
-                { metric: 'Consistency', value: qualityMetrics.consistency, color: COLORS.quality[2] },
-                { metric: 'Validity', value: qualityMetrics.validity, color: COLORS.quality[0] }
+                { metric: 'Completeness', value: qualityMetrics.completeness },
+                { metric: 'Uniqueness', value: qualityMetrics.uniqueness },
+                { metric: 'Consistency', value: qualityMetrics.consistency },
+                { metric: 'Validity', value: qualityMetrics.validity }
               ].map((metric, index) => (
                 <motion.div
                   key={metric.metric}
@@ -234,24 +241,24 @@ export function DataVisualization({ columnProfiles, correlations, datasetInfo }:
                   className="text-center"
                 >
                   <div className="mb-2">
-                    <div className={`text-2xl font-bold ${getQualityColor(metric.value)}`}>
+                    <div className={`text-2xl font-bold font-mono tabular-nums ${getQualityColor(metric.value)}`}>
                       {metric.value.toFixed(1)}%
                     </div>
-                    <div className="text-sm text-purple-300">{metric.metric}</div>
+                    <div className="text-sm text-muted-foreground">{metric.metric}</div>
                   </div>
                   <Progress
                     value={metric.value}
-                    className="h-2 bg-white/10"
+                    className="h-2 bg-elevated"
                   />
                 </motion.div>
               ))}
             </div>
 
             <div className="text-center">
-              <div className={`text-4xl font-bold mb-2 ${getQualityColor(overallQualityScore)}`}>
+              <div className={`text-4xl font-bold font-mono tabular-nums mb-2 ${getQualityColor(overallQualityScore)}`}>
                 {overallQualityScore}%
               </div>
-              <div className="text-purple-200">Overall Data Quality Score</div>
+              <div className="text-muted-foreground">Overall Data Quality Score</div>
             </div>
           </CardContent>
         </Card>
@@ -265,13 +272,15 @@ export function DataVisualization({ columnProfiles, correlations, datasetInfo }:
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
         >
-          <Card className="glass h-full">
+          <Card className="border border-border bg-card h-full">
             <CardHeader>
-              <CardTitle className="text-white flex items-center">
-                <ChartPieIcon className="w-5 h-5 mr-2" />
+              <CardTitle className="text-foreground flex items-center">
+                <span className="w-8 h-8 mr-2 flex items-center justify-center rounded-lg bg-gradient-to-br from-violet-500/25 to-fuchsia-500/25 text-violet-300">
+                  <ChartPieIcon className="w-5 h-5" />
+                </span>
                 Feature Type Analysis
               </CardTitle>
-              <CardDescription className="text-purple-200">
+              <CardDescription className="text-muted-foreground">
                 Distribution and characteristics of data types
               </CardDescription>
             </CardHeader>
@@ -289,16 +298,11 @@ export function DataVisualization({ columnProfiles, correlations, datasetInfo }:
                       dataKey="count"
                     >
                       {typeChartData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS.primary[index % COLORS.primary.length]} />
+                        <Cell key={`cell-${index}`} fill={CHART[index % CHART.length]} />
                       ))}
                     </Pie>
                     <Tooltip
-                      contentStyle={{
-                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
-                        border: '1px solid #8b5cf6',
-                        borderRadius: '8px',
-                        color: 'white'
-                      }}
+                      {...TOOLTIP_STYLE}
                       formatter={(value: number, name: string) => [
                         `${value} columns (${typeChartData.find(d => d.count === value)?.percentage}%)`,
                         name
@@ -310,17 +314,17 @@ export function DataVisualization({ columnProfiles, correlations, datasetInfo }:
 
               <div className="space-y-2">
                 {typeChartData.map((item, index) => (
-                  <div key={item.type} className="flex items-center justify-between p-2 bg-white/5 rounded-lg">
+                  <div key={item.type} className="flex items-center justify-between p-2 border border-border bg-card rounded-lg">
                     <div className="flex items-center">
                       <div
                         className="w-3 h-3 rounded-full mr-3"
-                        style={{ backgroundColor: COLORS.primary[index % COLORS.primary.length] }}
+                        style={{ backgroundColor: CHART[index % CHART.length] }}
                       />
-                      <span className="text-white font-medium">{item.type}</span>
+                      <span className="text-foreground font-medium">{item.type}</span>
                     </div>
                     <div className="text-right">
-                      <div className="text-purple-300">{item.count} columns</div>
-                      <div className="text-xs text-purple-400">{item.percentage}%</div>
+                      <div className="text-muted-foreground font-mono tabular-nums">{item.count} columns</div>
+                      <div className="text-xs text-muted-foreground font-mono tabular-nums">{item.percentage}%</div>
                     </div>
                   </div>
                 ))}
@@ -335,13 +339,15 @@ export function DataVisualization({ columnProfiles, correlations, datasetInfo }:
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
         >
-          <Card className="glass h-full">
+          <Card className="border border-border bg-card h-full">
             <CardHeader>
-              <CardTitle className="text-white flex items-center">
-                <ChartBarIcon className="w-5 h-5 mr-2" />
+              <CardTitle className="text-foreground flex items-center">
+                <span className="w-8 h-8 mr-2 flex items-center justify-center rounded-lg bg-gradient-to-br from-cyan-500/25 to-blue-500/25 text-cyan-300">
+                  <ChartBarIcon className="w-5 h-5" />
+                </span>
                 Data Quality
               </CardTitle>
-              <CardDescription className="text-purple-200">
+              <CardDescription className="text-muted-foreground">
                 Completeness metrics
               </CardDescription>
             </CardHeader>
@@ -349,26 +355,21 @@ export function DataVisualization({ columnProfiles, correlations, datasetInfo }:
               <div className="h-48">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={qualityData} margin={{ top: 10, right: 10, left: 10, bottom: 40 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                    <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="3 3" vertical={false} />
                     <XAxis
                       dataKey="metric"
-                      stroke="#9ca3af"
-                      fontSize={10}
+                      stroke="hsl(var(--muted-foreground))"
+                      tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }}
                       angle={-45}
                       textAnchor="end"
                       height={60}
                     />
-                    <YAxis stroke="#9ca3af" fontSize={10} />
+                    <YAxis stroke="hsl(var(--muted-foreground))" tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }} />
                     <Tooltip
-                      contentStyle={{
-                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                        border: '1px solid #8b5cf6',
-                        borderRadius: '8px',
-                        color: 'white'
-                      }}
+                      {...TOOLTIP_STYLE}
                       formatter={(value: number) => [`${value.toFixed(1)}%`, 'Percentage']}
                     />
-                    <Bar dataKey="value" fill="#8b5cf6" radius={[4, 4, 0, 0]}>
+                    <Bar dataKey="value" fill={CHART[0]} radius={[4, 4, 0, 0]}>
                       {qualityData.map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={entry.color} />
                       ))}
@@ -391,13 +392,15 @@ export function DataVisualization({ columnProfiles, correlations, datasetInfo }:
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.3 }}
             >
-              <Card className="glass border-yellow-400/50 h-full">
+              <Card className="border border-border bg-card h-full">
                 <CardHeader>
-                  <CardTitle className="text-white flex items-center">
-                    <ExclamationTriangleIcon className="w-5 h-5 text-yellow-400 mr-2" />
+                  <CardTitle className="text-foreground flex items-center">
+                    <span className="w-8 h-8 mr-2 flex items-center justify-center rounded-lg bg-gradient-to-br from-amber-500/25 to-orange-500/25 text-amber-300">
+                      <ExclamationTriangleIcon className="w-5 h-5" />
+                    </span>
                     Missing Values
                   </CardTitle>
-                  <CardDescription className="text-yellow-200">
+                  <CardDescription className="text-muted-foreground">
                     Columns needing attention
                   </CardDescription>
                 </CardHeader>
@@ -405,23 +408,18 @@ export function DataVisualization({ columnProfiles, correlations, datasetInfo }:
                   <div className="h-48">
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={missingValuesData} margin={{ top: 10, right: 10, left: 10, bottom: 40 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                        <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="3 3" vertical={false} />
                         <XAxis
                           dataKey="column"
-                          stroke="#9ca3af"
-                          fontSize={10}
+                          stroke="hsl(var(--muted-foreground))"
+                          tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }}
                           angle={-45}
                           textAnchor="end"
                           height={60}
                         />
-                        <YAxis stroke="#9ca3af" fontSize={10} />
+                        <YAxis stroke="hsl(var(--muted-foreground))" tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }} />
                         <Tooltip
-                          contentStyle={{
-                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                            border: '1px solid #f59e0b',
-                            borderRadius: '8px',
-                            color: 'white'
-                          }}
+                          {...TOOLTIP_STYLE}
                           formatter={(value: number, name: string) => [
                             `${value.toFixed(1)}%`,
                             name === 'missing_percentage' ? 'Missing' : 'Complete'
@@ -431,7 +429,7 @@ export function DataVisualization({ columnProfiles, correlations, datasetInfo }:
                             return item ? item.fullColumn : label
                           }}
                         />
-                        <Bar dataKey="missing_percentage" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="missing_percentage" fill={CHART[2]} radius={[4, 4, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
@@ -447,13 +445,15 @@ export function DataVisualization({ columnProfiles, correlations, datasetInfo }:
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.4 }}
             >
-              <Card className="glass h-full">
+              <Card className="border border-border bg-card h-full">
                 <CardHeader>
-                  <CardTitle className="text-white flex items-center">
-                    <ChartBarIcon className="w-5 h-5 mr-2" />
+                  <CardTitle className="text-foreground flex items-center">
+                    <span className="w-8 h-8 mr-2 flex items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500/25 to-teal-500/25 text-emerald-300">
+                      <ChartBarIcon className="w-5 h-5" />
+                    </span>
                     Numerical Stats
                   </CardTitle>
-                  <CardDescription className="text-purple-200">
+                  <CardDescription className="text-muted-foreground">
                     Statistical distribution
                   </CardDescription>
                 </CardHeader>
@@ -461,33 +461,28 @@ export function DataVisualization({ columnProfiles, correlations, datasetInfo }:
                   <div className="h-48">
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={numericalColumnsChart} margin={{ top: 10, right: 10, left: 10, bottom: 40 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                        <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="3 3" vertical={false} />
                         <XAxis
                           dataKey="column"
-                          stroke="#9ca3af"
-                          fontSize={10}
+                          stroke="hsl(var(--muted-foreground))"
+                          tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }}
                           angle={-45}
                           textAnchor="end"
                           height={60}
                         />
-                        <YAxis stroke="#9ca3af" fontSize={10} />
+                        <YAxis stroke="hsl(var(--muted-foreground))" tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }} />
                         <Tooltip
-                          contentStyle={{
-                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                            border: '1px solid #8b5cf6',
-                            borderRadius: '8px',
-                            color: 'white'
-                          }}
+                          {...TOOLTIP_STYLE}
                           formatter={(value: number, name: string) => [
                             value.toLocaleString(),
                             name === 'mean' ? 'Mean' : name === 'std' ? 'Std Dev' : 'Skewness'
                           ]}
                           labelFormatter={(label) => {
                             const item = numericalColumns.find(d => d.column === label)
-                            return item ? item.fullColumn : label
+                            return item ? item.column : label
                           }}
                         />
-                        <Bar dataKey="mean" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="mean" fill={CHART[1]} radius={[4, 4, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
@@ -505,14 +500,16 @@ export function DataVisualization({ columnProfiles, correlations, datasetInfo }:
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.5 }}
         >
-          <Card className="glass">
+          <Card className="border border-border bg-card">
             <CardHeader>
-              <CardTitle className="text-white flex items-center">
-                <ChartPieIcon className="w-5 h-5 mr-2" />
+              <CardTitle className="text-foreground flex items-center">
+                <span className="w-8 h-8 mr-2 flex items-center justify-center rounded-lg bg-gradient-to-br from-violet-500/25 to-fuchsia-500/25 text-violet-300">
+                  <ChartPieIcon className="w-5 h-5" />
+                </span>
                 Strong Feature Correlations
               </CardTitle>
-              <CardDescription className="text-purple-200">
-                Significant correlations between features (|r| > 0.5)
+              <CardDescription className="text-muted-foreground">
+                Significant correlations between features (|r| &gt; 0.5)
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -520,9 +517,9 @@ export function DataVisualization({ columnProfiles, correlations, datasetInfo }:
                 {strongCorrelations.map((corr, index) => {
                   const absCorr = Math.abs(corr.correlation)
                   const getColor = () => {
-                    if (absCorr >= 0.8) return '#ef4444' // Strong - Red
-                    if (absCorr >= 0.7) return '#f59e0b' // Moderate-Strong - Orange
-                    return '#06b6d4' // Moderate - Blue
+                    if (absCorr >= 0.8) return CHART[4] // Very Strong - magenta
+                    if (absCorr >= 0.7) return CHART[2] // Strong - amber
+                    return CHART[0] // Moderate - cyan
                   }
 
                   const getIntensity = () => {
@@ -535,7 +532,7 @@ export function DataVisualization({ columnProfiles, correlations, datasetInfo }:
                       initial={{ opacity: 0, x: -20 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: 0.6 + index * 0.1 }}
-                      className="flex items-center justify-between p-4 bg-white/5 rounded-lg border border-white/10"
+                      className="flex items-center justify-between p-4 border border-border bg-elevated rounded-lg"
                     >
                       <div className="flex items-center space-x-4">
                         <div
@@ -546,10 +543,10 @@ export function DataVisualization({ columnProfiles, correlations, datasetInfo }:
                           }}
                         ></div>
                         <div>
-                          <div className="text-white font-medium">
+                          <div className="text-foreground font-medium">
                             {corr.column1} ↔ {corr.column2}
                           </div>
-                          <div className="text-purple-300 text-sm">
+                          <div className="text-muted-foreground text-sm">
                             {absCorr >= 0.8 ? 'Very Strong' :
                              absCorr >= 0.7 ? 'Strong' :
                              absCorr >= 0.5 ? 'Moderate' : 'Weak'} correlation
@@ -557,14 +554,10 @@ export function DataVisualization({ columnProfiles, correlations, datasetInfo }:
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className={`text-lg font-bold ${
-                          absCorr >= 0.8 ? 'text-red-400' :
-                          absCorr >= 0.7 ? 'text-orange-400' :
-                          'text-blue-400'
-                        }`}>
+                        <div className="text-lg font-bold font-mono tabular-nums text-foreground">
                           {corr.correlation.toFixed(3)}
                         </div>
-                        <div className="text-purple-300 text-xs">
+                        <div className="text-muted-foreground text-xs">
                           {corr.correlation > 0 ? 'Positive' : 'Negative'}
                         </div>
                       </div>
@@ -583,13 +576,15 @@ export function DataVisualization({ columnProfiles, correlations, datasetInfo }:
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.5 }}
       >
-        <Card className="glass">
+        <Card className="border border-border bg-card">
           <CardHeader>
-            <CardTitle className="text-white flex items-center">
-              <MagnifyingGlassIcon className="w-5 h-5 mr-2" />
+            <CardTitle className="text-foreground flex items-center">
+              <span className="w-8 h-8 mr-2 flex items-center justify-center rounded-lg bg-gradient-to-br from-cyan-500/25 to-blue-500/25 text-cyan-300">
+                <MagnifyingGlassIcon className="w-5 h-5" />
+              </span>
               Data Science Insights
             </CardTitle>
-            <CardDescription className="text-purple-200">
+            <CardDescription className="text-muted-foreground">
               Professional analysis and recommendations for your dataset
             </CardDescription>
           </CardHeader>
@@ -597,23 +592,19 @@ export function DataVisualization({ columnProfiles, correlations, datasetInfo }:
             <div className="grid md:grid-cols-2 gap-6">
               {/* Dataset Overview */}
               <div className="space-y-4">
-                <h4 className="text-lg font-semibold text-white mb-3">Dataset Overview</h4>
+                <h4 className="text-lg font-semibold text-foreground mb-3">Dataset Overview</h4>
                 <div className="space-y-3">
-                  <div className="flex justify-between items-center p-3 bg-white/5 rounded-lg">
-                    <span className="text-purple-300">Sample Size</span>
-                    <span className="text-white font-medium">{formatNumber(datasetInfo.rows)} rows</span>
+                  <div className="flex justify-between items-center p-3 border border-border bg-elevated rounded-lg">
+                    <span className="text-muted-foreground">Sample Size</span>
+                    <span className="text-foreground font-medium font-mono tabular-nums">{formatNumber(datasetInfo.rows)} rows</span>
                   </div>
-                  <div className="flex justify-between items-center p-3 bg-white/5 rounded-lg">
-                    <span className="text-purple-300">Feature Count</span>
-                    <span className="text-white font-medium">{datasetInfo.columns} columns</span>
+                  <div className="flex justify-between items-center p-3 border border-border bg-elevated rounded-lg">
+                    <span className="text-muted-foreground">Feature Count</span>
+                    <span className="text-foreground font-medium font-mono tabular-nums">{datasetInfo.columns} columns</span>
                   </div>
-                  <div className="flex justify-between items-center p-3 bg-white/5 rounded-lg">
-                    <span className="text-purple-300">Memory Usage</span>
-                    <span className="text-white font-medium">{datasetInfo.memory_usage}</span>
-                  </div>
-                  <div className="flex justify-between items-center p-3 bg-white/5 rounded-lg">
-                    <span className="text-purple-300">Missing Values</span>
-                    <span className={`font-medium ${datasetInfo.missing_values_total > 0 ? 'text-yellow-400' : 'text-green-400'}`}>
+                  <div className="flex justify-between items-center p-3 border border-border bg-elevated rounded-lg">
+                    <span className="text-muted-foreground">Missing Values</span>
+                    <span className={`font-medium font-mono tabular-nums ${datasetInfo.missing_values_total > 0 ? 'text-warning' : 'text-success'}`}>
                       {formatNumber(datasetInfo.missing_values_total)}
                     </span>
                   </div>
@@ -622,51 +613,51 @@ export function DataVisualization({ columnProfiles, correlations, datasetInfo }:
 
               {/* Recommendations */}
               <div className="space-y-4">
-                <h4 className="text-lg font-semibold text-white mb-3">Recommendations</h4>
+                <h4 className="text-lg font-semibold text-foreground mb-3">Recommendations</h4>
                 <div className="space-y-3">
                   {overallQualityScore < 70 && (
-                    <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                    <div className="p-3 border border-border bg-elevated rounded-lg">
                       <div className="flex items-center mb-2">
-                        <ExclamationTriangleIcon className="w-4 h-4 text-yellow-400 mr-2" />
-                        <span className="text-yellow-400 font-medium">Data Quality</span>
+                        <ExclamationTriangleIcon className="w-4 h-4 text-warning mr-2" />
+                        <span className="text-warning font-medium">Data Quality</span>
                       </div>
-                      <p className="text-yellow-200 text-sm">
+                      <p className="text-muted-foreground text-sm">
                         Consider data cleaning and preprocessing to improve quality score.
                       </p>
                     </div>
                   )}
 
                   {datasetInfo.missing_values_total > 0 && (
-                    <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                    <div className="p-3 border border-border bg-elevated rounded-lg">
                       <div className="flex items-center mb-2">
-                        <ArrowTrendingUpIcon className="w-4 h-4 text-blue-400 mr-2" />
-                        <span className="text-blue-400 font-medium">Missing Data</span>
+                        <ArrowTrendingUpIcon className="w-4 h-4 text-primary mr-2" />
+                        <span className="text-primary font-medium">Missing Data</span>
                       </div>
-                      <p className="text-blue-200 text-sm">
+                      <p className="text-muted-foreground text-sm">
                         Handle missing values using imputation or removal strategies.
                       </p>
                     </div>
                   )}
 
                   {numericalColumns.some(col => col.outliers > 0) && (
-                    <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-lg">
+                    <div className="p-3 border border-border bg-elevated rounded-lg">
                       <div className="flex items-center mb-2">
-                        <EyeIcon className="w-4 h-4 text-purple-400 mr-2" />
-                        <span className="text-purple-400 font-medium">Outliers Detected</span>
+                        <EyeIcon className="w-4 h-4 text-primary mr-2" />
+                        <span className="text-foreground font-medium">Outliers Detected</span>
                       </div>
-                      <p className="text-purple-200 text-sm">
+                      <p className="text-muted-foreground text-sm">
                         Review outliers for data entry errors or genuine extreme values.
                       </p>
                     </div>
                   )}
 
                   {strongCorrelations.length > 0 && (
-                    <div className="p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+                    <div className="p-3 border border-border bg-elevated rounded-lg">
                       <div className="flex items-center mb-2">
-                        <SparklesIcon className="w-4 h-4 text-green-400 mr-2" />
-                        <span className="text-green-400 font-medium">Feature Engineering</span>
+                        <SparklesIcon className="w-4 h-4 text-success mr-2" />
+                        <span className="text-success font-medium">Feature Engineering</span>
                       </div>
-                      <p className="text-green-200 text-sm">
+                      <p className="text-muted-foreground text-sm">
                         Strong correlations found - consider feature selection or dimensionality reduction.
                       </p>
                     </div>

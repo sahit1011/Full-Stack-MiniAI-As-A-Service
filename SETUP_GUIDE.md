@@ -1,6 +1,6 @@
 # 🚀 Setup Guide for Recruiters
 
-This guide will help you quickly set up and test the Othor AI application locally.
+This guide will help you quickly set up and test the Klaro application locally.
 
 ## 📋 Prerequisites
 
@@ -38,7 +38,7 @@ docker-compose up --build
 
 ### Step 4: Test the Application
 1. Open http://localhost:3000 in your browser
-2. You should see the Othor AI homepage
+2. You should see the Klaro homepage
 3. Click "Start Analysis" to begin testing
 4. Visit http://localhost:8001/docs to explore the API
 
@@ -52,7 +52,7 @@ curl http://localhost:8001/health
 ```
 Expected response:
 ```json
-{"status":"healthy","message":"Othor AI API is running","version":"1.0.0"}
+{"status":"healthy","message":"Klaro API is running","version":"1.0.0"}
 ```
 
 ### API Documentation

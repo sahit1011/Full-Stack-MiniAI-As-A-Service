@@ -9,7 +9,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import {
-  ArrowLeftIcon,
   ArrowRightIcon,
   CpuChipIcon,
   CheckCircleIcon,
@@ -25,6 +24,9 @@ import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { SummaryModal } from "@/components/SummaryModal"
 import { apiService } from "@/lib/api"
+import PipelineStepper from "@/components/PipelineStepper"
+import ErrorState from "@/components/ErrorState"
+import PageSkeleton from "@/components/PageSkeleton"
 
 interface TrainingState {
   isTraining: boolean
@@ -62,6 +64,7 @@ export default function EnhancedTrainPage({ params }: { params: Promise<{ sessio
   const [selectedTarget, setSelectedTarget] = useState<string>('')
   const [selectedModel, setSelectedModel] = useState<string>('')
   const [problemType, setProblemType] = useState<string>('auto')
+  const [problemTypeError, setProblemTypeError] = useState(false)
   const [modelRecommendations, setModelRecommendations] = useState<ModelRecommendation[]>([])
   const [targetRecommendations, setTargetRecommendations] = useState<TargetRecommendation[]>([])
   const [intelligentAnalysis, setIntelligentAnalysis] = useState<any>(null)
@@ -158,6 +161,7 @@ export default function EnhancedTrainPage({ params }: { params: Promise<{ sessio
 
     try {
       setLoadingRecommendations(true)
+      setProblemTypeError(false)
       const response = await apiService.getModelRecommendations(
         resolvedParams.session,
         selectedTarget,
@@ -182,6 +186,7 @@ export default function EnhancedTrainPage({ params }: { params: Promise<{ sessio
       toast.success(`Found ${validRecommendations.length} model recommendations!`)
     } catch (err: any) {
       console.error('Error loading model recommendations:', err)
+      setProblemTypeError(true)
       toast.error('Failed to load model recommendations')
     } finally {
       setLoadingRecommendations(false)
@@ -216,25 +221,51 @@ export default function EnhancedTrainPage({ params }: { params: Promise<{ sessio
       setTrainingState(prev => ({
         ...prev,
         progress: 30,
-        currentStep: 'Training with enhanced pipeline...'
+        currentStep: 'Queuing enhanced training job...'
       }))
 
-      // Use enhanced training endpoint
-      const result = await apiService.trainEnhancedModel(resolvedParams.session, trainingRequest)
+      // Kick off the async enhanced job (202 { model_id, status: "queued" })
+      const { model_id } = await apiService.trainEnhancedModel(resolvedParams.session, trainingRequest)
 
       setTrainingState(prev => ({
         ...prev,
-        progress: 90,
-        currentStep: 'Finalizing enhanced results...'
+        progress: 55,
+        modelId: model_id,
+        currentStep: 'Training with enhanced pipeline (tuning + cross-validation)…'
       }))
 
-      await new Promise(resolve => setTimeout(resolve, 1000))
+      // Poll to completion — enhanced training tunes hyperparameters, so it can take longer
+      const final = await apiService.waitForTraining(model_id, {
+        intervalMs: 2000,
+        onTick: (status) =>
+          setTrainingState(prev => ({
+            ...prev,
+            progress: status === 'completed' ? 95 : prev.progress < 88 ? prev.progress + 5 : prev.progress,
+            currentStep: status === 'training'
+              ? 'Training with enhanced pipeline (tuning + cross-validation)…'
+              : 'Finalizing enhanced results…',
+          })),
+      })
+
+      if (final.status === 'failed') {
+        throw new Error(final.error_message || 'Enhanced training failed. Please try again.')
+      }
+
+      const result = {
+        model_id,
+        session_id: resolvedParams.session,
+        model_type: final.problem_type,
+        algorithm: final.algorithm,
+        training_info: final.training_info || {},
+        evaluation_metrics: final.evaluation_metrics || {},
+        feature_importance: final.feature_importance || {},
+      }
 
       setTrainingState({
         isTraining: false,
         progress: 100,
         currentStep: 'Enhanced training completed!',
-        modelId: result.model_id,
+        modelId: model_id,
         results: result
       })
 
@@ -242,7 +273,7 @@ export default function EnhancedTrainPage({ params }: { params: Promise<{ sessio
 
     } catch (err: any) {
       console.error('Enhanced training error:', err)
-      const errorMessage = err.response?.data?.detail?.message || 'Enhanced training failed. Please try again.'
+      const errorMessage = err.response?.data?.detail?.message || err.message || 'Enhanced training failed. Please try again.'
       setError(errorMessage)
       setTrainingState({
         isTraining: false,
@@ -255,33 +286,23 @@ export default function EnhancedTrainPage({ params }: { params: Promise<{ sessio
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <motion.div
-            animate={{ rotate: 360 }}
-            transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-            className="w-16 h-16 mx-auto mb-4 bg-gradient-to-r from-purple-500 to-pink-500 rounded-2xl flex items-center justify-center"
-          >
-            <SparklesIcon className="w-8 h-8 text-white" />
-          </motion.div>
-          <h2 className="text-2xl font-bold text-white mb-2">Loading Enhanced Training</h2>
-          <p className="text-purple-200">Preparing intelligent recommendations...</p>
-        </div>
+      <div className="min-h-screen pt-20">
+        <PipelineStepper current="train" sessionId={resolvedParams.session} />
+        <PageSkeleton />
       </div>
     )
   }
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center max-w-md">
-          <ExclamationTriangleIcon className="w-16 h-16 text-red-400 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-white mb-4">Enhanced Training Setup Failed</h2>
-          <p className="text-red-300 mb-6">{error}</p>
-          <Button asChild>
-            <Link href={`/profile/${resolvedParams.session}`}>Back to Profile</Link>
-          </Button>
-        </div>
+      <div className="min-h-screen pt-20">
+        <PipelineStepper current="train" sessionId={resolvedParams.session} />
+        <ErrorState
+          title="Enhanced Training Setup Failed"
+          message={error}
+          onRetry={() => loadEnhancedData(resolvedParams.session)}
+          actions={[{ label: "Back to Profile", href: `/profile/${resolvedParams.session}`, variant: "outline" }]}
+        />
       </div>
     )
   }
@@ -296,6 +317,8 @@ export default function EnhancedTrainPage({ params }: { params: Promise<{ sessio
 
   return (
     <div className="min-h-screen pt-20">
+      <PipelineStepper current="train" sessionId={resolvedParams.session} />
+
       {/* Main Content */}
       <main className="relative z-10 px-6 py-12">
         <div className="max-w-6xl mx-auto">
@@ -304,63 +327,68 @@ export default function EnhancedTrainPage({ params }: { params: Promise<{ sessio
               /* Enhanced Training Configuration */
               <motion.div
                 key="enhanced-config"
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                transition={{ duration: 0.5 }}
+                exit={{ opacity: 0, y: -12 }}
+                transition={{ duration: 0.3 }}
               >
                 {/* Header */}
                 <div className="text-center mb-12">
                   <div className="flex items-center justify-center mb-4">
-                    <RocketLaunchIcon className="w-12 h-12 text-purple-400 mr-3" />
-                    <h1 className="text-4xl md:text-5xl font-bold text-white">
+                    <div className="w-10 h-10 mr-3 rounded-lg bg-elevated text-primary flex items-center justify-center">
+                      <RocketLaunchIcon className="w-6 h-6" />
+                    </div>
+                    <h1 className="text-4xl md:text-5xl font-bold text-foreground">
                       Enhanced Training
                     </h1>
                   </div>
-                  <p className="text-xl text-purple-200 max-w-3xl mx-auto">
+                  <p className="text-xl text-muted-foreground max-w-3xl mx-auto">
                     Leverage AI-powered recommendations and intelligent analysis for optimal model performance
+                  </p>
+                  <p className="text-sm text-muted-foreground max-w-3xl mx-auto mt-3">
+                    Enhanced: AI recommends the target and model and tunes it.
                   </p>
                 </div>
 
                 <div className="space-y-8">
                   {/* Intelligent Analysis Summary */}
                   {intelligentAnalysis && (
-                    <Card className="glass border-purple-400/50">
+                    <Card>
                       <CardHeader>
-                        <CardTitle className="text-white flex items-center">
-                          <LightBulbIcon className="w-5 h-5 mr-2" />
+                        <CardTitle className="text-foreground flex items-center">
+                          <LightBulbIcon className="w-5 h-5 mr-2 text-primary" />
                           AI Dataset Analysis
                         </CardTitle>
-                        <CardDescription className="text-purple-200">
+                        <CardDescription className="text-muted-foreground">
                           Intelligent insights about your dataset
                         </CardDescription>
                       </CardHeader>
                       <CardContent>
                         <div className="grid md:grid-cols-2 gap-6">
                           <div>
-                            <h4 className="text-white font-semibold mb-3">Dataset Characteristics</h4>
+                            <h4 className="text-foreground font-semibold mb-3">Dataset Characteristics</h4>
                             <div className="space-y-2 text-sm">
                               <div className="flex justify-between">
-                                <span className="text-purple-200">Complexity:</span>
-                                <Badge variant="outline" className="border-purple-400 text-purple-300">
+                                <span className="text-muted-foreground">Complexity:</span>
+                                <Badge variant="outline">
                                   {intelligentAnalysis.dataset_complexity || 'Medium'}
                                 </Badge>
                               </div>
                               <div className="flex justify-between">
-                                <span className="text-purple-200">Quality Score:</span>
-                                <span className="text-green-400 font-semibold">
+                                <span className="text-muted-foreground">Quality Score:</span>
+                                <span className="text-success font-semibold">
                                   {intelligentAnalysis.quality_score || 'Good'}
                                 </span>
                               </div>
                             </div>
                           </div>
                           <div>
-                            <h4 className="text-white font-semibold mb-3">Recommendations</h4>
+                            <h4 className="text-foreground font-semibold mb-3">Recommendations</h4>
                             <div className="space-y-1 text-sm">
                               {intelligentAnalysis.recommendations?.slice(0, 3).map((rec: string, idx: number) => (
                                 <div key={idx} className="flex items-start space-x-2">
-                                  <StarIcon className="w-3 h-3 text-yellow-400 mt-0.5 flex-shrink-0" />
-                                  <span className="text-purple-200">{rec}</span>
+                                  <StarIcon className="w-3 h-3 text-primary mt-0.5 flex-shrink-0" />
+                                  <span className="text-muted-foreground">{rec}</span>
                                 </div>
                               ))}
                             </div>
@@ -371,16 +399,16 @@ export default function EnhancedTrainPage({ params }: { params: Promise<{ sessio
                   )}
 
                   {/* Smart Target Selection */}
-                  <Card className="glass">
+                  <Card>
                     <CardHeader>
-                      <CardTitle className="text-white flex items-center">
-                        <ChartBarIcon className="w-5 h-5 mr-2" />
+                      <CardTitle className="text-foreground flex items-center">
+                        <ChartBarIcon className="w-5 h-5 mr-2 text-primary" />
                         Smart Target Selection
-                        <Badge variant="secondary" className="ml-2 bg-green-500/20 text-green-300 border-green-400">
+                        <Badge variant="success" className="ml-2">
                           AI Recommended
                         </Badge>
                       </CardTitle>
-                      <CardDescription className="text-purple-200">
+                      <CardDescription className="text-muted-foreground">
                         AI-powered target column recommendations based on dataset analysis
                       </CardDescription>
                     </CardHeader>
@@ -391,10 +419,10 @@ export default function EnhancedTrainPage({ params }: { params: Promise<{ sessio
                             <label
                               key={target.column}
                               className={cn(
-                                "flex items-center p-4 rounded-xl border-2 cursor-pointer transition-all duration-300",
+                                "flex items-center p-4 rounded-lg border cursor-pointer transition-colors",
                                 selectedTarget === target.column
-                                  ? "border-purple-400 bg-purple-500/20"
-                                  : "border-white/20 bg-white/5 hover:bg-white/10"
+                                  ? "border-primary/40 bg-elevated"
+                                  : "border-border bg-card hover:bg-elevated"
                               )}
                             >
                               <input
@@ -407,21 +435,21 @@ export default function EnhancedTrainPage({ params }: { params: Promise<{ sessio
                               />
                               <div className="flex-1">
                                 <div className="flex items-center space-x-3 mb-2">
-                                  <div className="text-white font-semibold">{target.column}</div>
-                                  <Badge variant="outline" className="border-blue-400 text-blue-300">
+                                  <div className="text-foreground font-semibold font-mono">{target.column}</div>
+                                  <Badge variant="outline">
                                     {target.problem_type}
                                   </Badge>
                                   <div className="flex items-center space-x-1">
-                                    <StarIcon className="w-4 h-4 text-yellow-400" />
-                                    <span className="text-yellow-400 font-semibold">{target.score}</span>
+                                    <StarIcon className="w-4 h-4 text-primary" />
+                                    <span className="text-foreground font-semibold font-mono tabular-nums">{target.score}</span>
                                   </div>
                                 </div>
-                                <div className="text-purple-200 text-sm">
+                                <div className="text-muted-foreground text-sm">
                                   {target.reasons.slice(0, 2).join(' • ')}
                                 </div>
                               </div>
                               {selectedTarget === target.column && (
-                                <CheckCircleIcon className="w-5 h-5 text-purple-400" />
+                                <CheckCircleIcon className="w-5 h-5 text-primary" />
                               )}
                             </label>
                           ))
@@ -431,10 +459,10 @@ export default function EnhancedTrainPage({ params }: { params: Promise<{ sessio
                               <label
                                 key={option.value}
                                 className={cn(
-                                  "flex items-center p-4 rounded-xl border-2 cursor-pointer transition-all duration-300",
+                                  "flex items-center p-4 rounded-lg border cursor-pointer transition-colors",
                                   selectedTarget === option.value
-                                    ? "border-purple-400 bg-purple-500/20"
-                                    : "border-white/20 bg-white/5 hover:bg-white/10"
+                                    ? "border-primary/40 bg-elevated"
+                                    : "border-border bg-card hover:bg-elevated"
                                 )}
                               >
                                 <input
@@ -446,13 +474,13 @@ export default function EnhancedTrainPage({ params }: { params: Promise<{ sessio
                                   className="sr-only"
                                 />
                                 <div className="flex-1">
-                                  <div className="text-white font-semibold">{option.label}</div>
-                                  <div className="text-purple-200 text-sm">
-                                    {option.type} • {option.unique_values} unique values
+                                  <div className="text-foreground font-semibold font-mono">{option.label}</div>
+                                  <div className="text-muted-foreground text-sm">
+                                    {option.type} • <span className="font-mono tabular-nums">{option.unique_values}</span> unique values
                                   </div>
                                 </div>
                                 {selectedTarget === option.value && (
-                                  <CheckCircleIcon className="w-5 h-5 text-purple-400" />
+                                  <CheckCircleIcon className="w-5 h-5 text-primary" />
                                 )}
                               </label>
                             ))}
@@ -464,16 +492,16 @@ export default function EnhancedTrainPage({ params }: { params: Promise<{ sessio
 
                   {/* AI Model Recommendations */}
                   {selectedTarget && (
-                    <Card className="glass">
+                    <Card>
                       <CardHeader>
-                        <CardTitle className="text-white flex items-center">
-                          <CpuChipIcon className="w-5 h-5 mr-2" />
+                        <CardTitle className="text-foreground flex items-center">
+                          <CpuChipIcon className="w-5 h-5 mr-2 text-primary" />
                           AI Model Recommendations
-                          <Badge variant="secondary" className="ml-2 bg-blue-500/20 text-blue-300 border-blue-400">
+                          <Badge variant="default" className="ml-2">
                             Intelligent Selection
                           </Badge>
                         </CardTitle>
-                        <CardDescription className="text-purple-200">
+                        <CardDescription className="text-muted-foreground">
                           Optimized model suggestions based on your data characteristics
                         </CardDescription>
                       </CardHeader>
@@ -483,11 +511,11 @@ export default function EnhancedTrainPage({ params }: { params: Promise<{ sessio
                             <motion.div
                               animate={{ rotate: 360 }}
                               transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                              className="w-8 h-8 mx-auto mb-4 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-lg flex items-center justify-center"
+                              className="w-8 h-8 mx-auto mb-4 bg-elevated text-primary rounded-lg flex items-center justify-center"
                             >
-                              <SparklesIcon className="w-4 h-4 text-white" />
+                              <SparklesIcon className="w-4 h-4" />
                             </motion.div>
-                            <p className="text-purple-200">Analyzing your data for optimal model recommendations...</p>
+                            <p className="text-muted-foreground">Analyzing your data for optimal model recommendations...</p>
                           </div>
                         ) : Array.isArray(modelRecommendations) && modelRecommendations.length > 0 ? (
                           <div className="space-y-4">
@@ -495,10 +523,10 @@ export default function EnhancedTrainPage({ params }: { params: Promise<{ sessio
                               <label
                                 key={model.model_name}
                                 className={cn(
-                                  "block p-4 rounded-xl border-2 cursor-pointer transition-all duration-300 hover-lift",
+                                  "block p-4 rounded-lg border cursor-pointer transition-colors",
                                   selectedModel === model.model_name
-                                    ? "border-purple-400 bg-purple-500/20"
-                                    : "border-white/20 bg-white/5 hover:bg-white/10"
+                                    ? "border-primary/40 bg-elevated"
+                                    : "border-border bg-card hover:bg-elevated"
                                 )}
                               >
                                 <input
@@ -512,37 +540,37 @@ export default function EnhancedTrainPage({ params }: { params: Promise<{ sessio
                                 <div className="flex items-start justify-between">
                                   <div className="flex-1">
                                     <div className="flex items-center space-x-3 mb-2">
-                                      <div className="text-white font-semibold capitalize">
+                                      <div className="text-foreground font-semibold capitalize">
                                         {model.model_name.replace(/_/g, ' ')}
                                       </div>
                                       {idx === 0 && (
-                                        <Badge variant="secondary" className="bg-yellow-500/20 text-yellow-300 border-yellow-400">
+                                        <Badge variant="warning">
                                           <StarIcon className="w-3 h-3 mr-1" />
                                           Best Match
                                         </Badge>
                                       )}
                                       <div className="flex items-center space-x-1">
-                                        <span className="text-green-400 font-bold">{model.score}</span>
-                                        <span className="text-purple-200 text-sm">score</span>
+                                        <span className="text-success font-bold font-mono tabular-nums">{model.score}</span>
+                                        <span className="text-muted-foreground text-sm">score</span>
                                       </div>
                                     </div>
-                                    <div className="text-purple-200 text-sm mb-3">
+                                    <div className="text-muted-foreground text-sm mb-3">
                                       {model.model_info.best_for}
                                     </div>
                                     <div className="flex flex-wrap gap-2 mb-3">
-                                      <Badge variant="outline" className="border-green-400 text-green-300 text-xs">
+                                      <Badge variant="outline" className="text-xs">
                                         {model.model_info.complexity} complexity
                                       </Badge>
-                                      <Badge variant="outline" className="border-blue-400 text-blue-300 text-xs">
+                                      <Badge variant="outline" className="text-xs">
                                         {model.model_info.training_time} training
                                       </Badge>
                                     </div>
-                                    <div className="text-purple-300 text-xs">
-                                      <strong>Why recommended:</strong> {model.reasons.slice(0, 2).join(' • ')}
+                                    <div className="text-muted-foreground text-xs">
+                                      <strong className="text-foreground">Why recommended:</strong> {model.reasons.slice(0, 2).join(' • ')}
                                     </div>
                                   </div>
                                   {selectedModel === model.model_name && (
-                                    <CheckCircleIcon className="w-5 h-5 text-purple-400 ml-4" />
+                                    <CheckCircleIcon className="w-5 h-5 text-primary ml-4" />
                                   )}
                                 </div>
                               </label>
@@ -550,8 +578,8 @@ export default function EnhancedTrainPage({ params }: { params: Promise<{ sessio
                           </div>
                         ) : (
                           <div className="text-center py-8">
-                            <CpuChipIcon className="w-12 h-12 text-purple-400 mx-auto mb-4" />
-                            <p className="text-purple-200">Select a target column to see model recommendations</p>
+                            <CpuChipIcon className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                            <p className="text-muted-foreground">Select a target column to see model recommendations</p>
                           </div>
                         )}
                       </CardContent>
@@ -560,31 +588,54 @@ export default function EnhancedTrainPage({ params }: { params: Promise<{ sessio
 
                   {/* Problem Type Detection */}
                   {selectedTarget && (
-                    <Card className="glass">
+                    <Card>
                       <CardHeader>
-                        <CardTitle className="text-white flex items-center">
-                          <Cog6ToothIcon className="w-5 h-5 mr-2" />
+                        <CardTitle className="text-foreground flex items-center">
+                          <Cog6ToothIcon className="w-5 h-5 mr-2 text-primary" />
                           Problem Type Detection
                         </CardTitle>
-                        <CardDescription className="text-purple-200">
+                        <CardDescription className="text-muted-foreground">
                           Automatically detected based on target column analysis
                         </CardDescription>
                       </CardHeader>
                       <CardContent>
-                        <div className="flex items-center space-x-4">
-                          <div className="flex items-center space-x-2">
-                            <span className="text-purple-200">Detected Type:</span>
-                            <Badge variant="outline" className="border-purple-400 text-purple-300 capitalize">
-                              {problemType === 'auto' ? 'Auto-detecting...' : problemType}
-                            </Badge>
-                          </div>
-                          {problemType !== 'auto' && (
+                        {problemTypeError ? (
+                          /* Failed state */
+                          <div className="flex flex-wrap items-center gap-4">
                             <div className="flex items-center space-x-2">
-                              <CheckCircleIcon className="w-4 h-4 text-green-400" />
-                              <span className="text-green-400 text-sm">Automatically optimized</span>
+                              <ExclamationTriangleIcon className="w-4 h-4 text-destructive" />
+                              <span className="text-destructive text-sm">Couldn&apos;t auto-detect the problem type</span>
                             </div>
-                          )}
-                        </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={loadModelRecommendations}
+                              disabled={loadingRecommendations}
+                            >
+                              Retry detection
+                            </Button>
+                          </div>
+                        ) : loadingRecommendations && problemType === 'auto' ? (
+                          /* Detecting state */
+                          <div className="flex items-center space-x-2">
+                            <span className="text-muted-foreground">Detected Type:</span>
+                            <Badge variant="outline">Auto-detecting...</Badge>
+                          </div>
+                        ) : (
+                          /* Resolved state */
+                          <div className="flex flex-wrap items-center gap-4">
+                            <div className="flex items-center space-x-2">
+                              <span className="text-muted-foreground">Detected Type:</span>
+                              <Badge variant="default" className="capitalize">
+                                {problemType === 'auto' ? 'Classification / Regression' : problemType}
+                              </Badge>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <CheckCircleIcon className="w-4 h-4 text-success" />
+                              <span className="text-success text-sm">Automatically optimized</span>
+                            </div>
+                          </div>
+                        )}
                       </CardContent>
                     </Card>
                   )}
@@ -595,13 +646,13 @@ export default function EnhancedTrainPage({ params }: { params: Promise<{ sessio
                       onClick={startEnhancedTraining}
                       disabled={!selectedTarget || !selectedModel || loadingRecommendations}
                       size="xl"
-                      className="group bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600"
+                      className="group"
                     >
                       <RocketLaunchIcon className="w-5 h-5 mr-2" />
                       Start Enhanced Training
                       <ArrowRightIcon className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
                     </Button>
-                    <p className="text-purple-300 text-sm mt-2">
+                    <p className="text-muted-foreground text-sm mt-2">
                       Powered by intelligent model selection and optimization
                     </p>
                   </div>
@@ -611,52 +662,52 @@ export default function EnhancedTrainPage({ params }: { params: Promise<{ sessio
               /* Enhanced Training Progress */
               <motion.div
                 key="enhanced-training"
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -12 }}
+                transition={{ duration: 0.3 }}
                 className="text-center"
               >
-                <div className="w-24 h-24 mx-auto mb-8 bg-gradient-to-r from-purple-500 to-pink-500 rounded-2xl flex items-center justify-center">
+                <div className="w-20 h-20 mx-auto mb-8 bg-elevated text-primary rounded-lg flex items-center justify-center">
                   <motion.div
                     animate={{ rotate: 360 }}
                     transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
                   >
-                    <RocketLaunchIcon className="w-12 h-12 text-white" />
+                    <RocketLaunchIcon className="w-10 h-10" />
                   </motion.div>
                 </div>
 
-                <h1 className="text-4xl font-bold text-white mb-4">Enhanced Training in Progress</h1>
-                <p className="text-xl text-purple-200 mb-8">{trainingState.currentStep}</p>
+                <h1 className="text-4xl font-bold text-foreground mb-4">Enhanced Training in Progress</h1>
+                <p className="text-xl text-muted-foreground mb-8">{trainingState.currentStep}</p>
 
                 {/* Progress Bar */}
                 <div className="max-w-md mx-auto mb-8">
                   <Progress
                     value={trainingState.progress}
-                    variant="gradient"
                     className="h-4 mb-2"
                   />
-                  <p className="text-purple-300 text-sm">{trainingState.progress}% complete</p>
+                  <p className="text-muted-foreground text-sm font-mono tabular-nums">{trainingState.progress}% complete</p>
                 </div>
 
                 {/* Enhanced Training Info */}
-                <Card className="max-w-md mx-auto glass">
+                <Card className="max-w-md mx-auto">
                   <CardContent className="p-6">
                     <div className="space-y-2 text-sm">
                       <div className="flex justify-between">
-                        <span className="text-purple-200">Model:</span>
-                        <span className="text-white capitalize">{selectedModel?.replace(/_/g, ' ')}</span>
+                        <span className="text-muted-foreground">Model:</span>
+                        <span className="text-foreground capitalize">{selectedModel?.replace(/_/g, ' ')}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-purple-200">Target:</span>
-                        <span className="text-white">{selectedTarget}</span>
+                        <span className="text-muted-foreground">Target:</span>
+                        <span className="text-foreground font-mono">{selectedTarget}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-purple-200">Type:</span>
-                        <span className="text-white capitalize">{problemType}</span>
+                        <span className="text-muted-foreground">Type:</span>
+                        <span className="text-foreground capitalize">{problemType}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-purple-200">Pipeline:</span>
-                        <Badge variant="secondary" className="bg-purple-500/20 text-purple-300">Enhanced</Badge>
+                        <span className="text-muted-foreground">Pipeline:</span>
+                        <Badge variant="secondary">Enhanced</Badge>
                       </div>
                     </div>
                   </CardContent>
@@ -666,16 +717,16 @@ export default function EnhancedTrainPage({ params }: { params: Promise<{ sessio
               /* Enhanced Training Results */
               <motion.div
                 key="enhanced-results"
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 className="text-center"
               >
-                <div className="w-24 h-24 mx-auto mb-8 bg-gradient-to-r from-green-500 to-emerald-500 rounded-2xl flex items-center justify-center">
-                  <CheckCircleIcon className="w-12 h-12 text-white" />
+                <div className="w-20 h-20 mx-auto mb-8 bg-success/15 text-success rounded-lg flex items-center justify-center">
+                  <CheckCircleIcon className="w-10 h-10" />
                 </div>
 
-                <h1 className="text-4xl font-bold text-white mb-4">Enhanced Training Complete! 🚀</h1>
-                <p className="text-xl text-purple-200 mb-8">
+                <h1 className="text-4xl font-bold text-foreground mb-4">Enhanced Training Complete</h1>
+                <p className="text-xl text-muted-foreground mb-8">
                   Your model has been trained with our enhanced pipeline and intelligent optimizations
                 </p>
 
@@ -683,78 +734,78 @@ export default function EnhancedTrainPage({ params }: { params: Promise<{ sessio
                 {trainingState.results && (
                   <div className="space-y-6 mb-8">
                     {/* Main Metrics Card */}
-                    <Card className="max-w-5xl mx-auto glass">
+                    <Card className="max-w-5xl mx-auto">
                       <CardHeader>
-                        <CardTitle className="text-white flex items-center">
-                          <ChartBarIcon className="w-5 h-5 mr-2" />
+                        <CardTitle className="text-foreground flex items-center">
+                          <ChartBarIcon className="w-5 h-5 mr-2 text-primary" />
                           Enhanced Training Results & Performance
-                          <Badge variant="secondary" className="ml-2 bg-green-500/20 text-green-300 border-green-400">
+                          <Badge variant="success" className="ml-2">
                             Optimized
                           </Badge>
                         </CardTitle>
-                        <CardDescription className="text-purple-200">
+                        <CardDescription className="text-muted-foreground">
                           Comprehensive evaluation metrics from your enhanced training pipeline
                         </CardDescription>
                       </CardHeader>
                       <CardContent>
-                        <div className="grid md:grid-cols-3 gap-6">
+                        <div className="grid md:grid-cols-3 gap-6 text-left">
                           {/* Model Info */}
                           <div className="space-y-4">
-                            <h4 className="text-white font-semibold mb-3">Enhanced Model Info</h4>
+                            <h4 className="text-foreground font-semibold mb-3">Enhanced Model Info</h4>
                             <div className="space-y-2">
                               <div className="flex justify-between">
-                                <span className="text-purple-200">Model ID:</span>
-                                <span className="text-white font-mono text-xs">{trainingState.modelId?.slice(-8)}</span>
+                                <span className="text-muted-foreground">Model ID:</span>
+                                <span className="text-foreground font-mono tabular-nums text-xs">{trainingState.modelId?.slice(-8)}</span>
                               </div>
                               <div className="flex justify-between">
-                                <span className="text-purple-200">Algorithm:</span>
-                                <span className="text-white capitalize">{selectedModel?.replace(/_/g, ' ')}</span>
+                                <span className="text-muted-foreground">Algorithm:</span>
+                                <span className="text-foreground capitalize">{selectedModel?.replace(/_/g, ' ')}</span>
                               </div>
                               <div className="flex justify-between">
-                                <span className="text-purple-200">Target:</span>
-                                <span className="text-white">{selectedTarget}</span>
+                                <span className="text-muted-foreground">Target:</span>
+                                <span className="text-foreground font-mono">{selectedTarget}</span>
                               </div>
                               <div className="flex justify-between">
-                                <span className="text-purple-200">Pipeline:</span>
-                                <Badge variant="secondary" className="bg-purple-500/20 text-purple-300">Enhanced</Badge>
+                                <span className="text-muted-foreground">Pipeline:</span>
+                                <Badge variant="secondary">Enhanced</Badge>
                               </div>
                             </div>
                           </div>
 
                           {/* Performance Metrics */}
                           <div className="space-y-4">
-                            <h4 className="text-white font-semibold mb-3">Performance Metrics</h4>
+                            <h4 className="text-foreground font-semibold mb-3">Performance Metrics</h4>
                             <div className="space-y-2">
                               {/* Classification Metrics */}
                               {trainingState.results.model_type === 'classification' ? (
                                 <>
                                   <div className="flex justify-between">
-                                    <span className="text-purple-200">Accuracy:</span>
-                                    <span className="text-green-400 font-bold">
+                                    <span className="text-muted-foreground">Accuracy:</span>
+                                    <span className="text-success font-bold font-mono tabular-nums">
                                       {trainingState.results.evaluation_metrics?.accuracy
                                         ? (trainingState.results.evaluation_metrics.accuracy * 100).toFixed(1) + '%'
                                         : 'N/A'}
                                     </span>
                                   </div>
                                   <div className="flex justify-between">
-                                    <span className="text-purple-200">Precision:</span>
-                                    <span className="text-blue-400 font-semibold">
+                                    <span className="text-muted-foreground">Precision:</span>
+                                    <span className="text-foreground font-semibold font-mono tabular-nums">
                                       {trainingState.results.evaluation_metrics?.precision
                                         ? (trainingState.results.evaluation_metrics.precision * 100).toFixed(1) + '%'
                                         : 'N/A'}
                                     </span>
                                   </div>
                                   <div className="flex justify-between">
-                                    <span className="text-purple-200">Recall:</span>
-                                    <span className="text-cyan-400 font-semibold">
+                                    <span className="text-muted-foreground">Recall:</span>
+                                    <span className="text-foreground font-semibold font-mono tabular-nums">
                                       {trainingState.results.evaluation_metrics?.recall
                                         ? (trainingState.results.evaluation_metrics.recall * 100).toFixed(1) + '%'
                                         : 'N/A'}
                                     </span>
                                   </div>
                                   <div className="flex justify-between">
-                                    <span className="text-purple-200">F1-Score:</span>
-                                    <span className="text-purple-400 font-semibold">
+                                    <span className="text-muted-foreground">F1-Score:</span>
+                                    <span className="text-foreground font-semibold font-mono tabular-nums">
                                       {trainingState.results.evaluation_metrics?.f1_score
                                         ? (trainingState.results.evaluation_metrics.f1_score * 100).toFixed(1) + '%'
                                         : 'N/A'}
@@ -765,24 +816,24 @@ export default function EnhancedTrainPage({ params }: { params: Promise<{ sessio
                                 /* Regression Metrics */
                                 <>
                                   <div className="flex justify-between">
-                                    <span className="text-purple-200">R² Score:</span>
-                                    <span className="text-green-400 font-bold">
+                                    <span className="text-muted-foreground">R² Score:</span>
+                                    <span className="text-success font-bold font-mono tabular-nums">
                                       {trainingState.results.evaluation_metrics?.r2_score
                                         ? trainingState.results.evaluation_metrics.r2_score.toFixed(3)
                                         : 'N/A'}
                                     </span>
                                   </div>
                                   <div className="flex justify-between">
-                                    <span className="text-purple-200">RMSE:</span>
-                                    <span className="text-blue-400 font-semibold">
+                                    <span className="text-muted-foreground">RMSE:</span>
+                                    <span className="text-foreground font-semibold font-mono tabular-nums">
                                       {trainingState.results.evaluation_metrics?.rmse
                                         ? trainingState.results.evaluation_metrics.rmse.toFixed(3)
                                         : 'N/A'}
                                     </span>
                                   </div>
                                   <div className="flex justify-between">
-                                    <span className="text-purple-200">MAE:</span>
-                                    <span className="text-cyan-400 font-semibold">
+                                    <span className="text-muted-foreground">MAE:</span>
+                                    <span className="text-foreground font-semibold font-mono tabular-nums">
                                       {trainingState.results.evaluation_metrics?.mae
                                         ? trainingState.results.evaluation_metrics.mae.toFixed(3)
                                         : 'N/A'}
@@ -795,23 +846,23 @@ export default function EnhancedTrainPage({ params }: { params: Promise<{ sessio
 
                           {/* Enhanced Features */}
                           <div className="space-y-4">
-                            <h4 className="text-white font-semibold mb-3">Enhanced Features</h4>
+                            <h4 className="text-foreground font-semibold mb-3">Enhanced Features</h4>
                             <div className="space-y-2">
                               <div className="flex items-center space-x-2">
-                                <CheckCircleIcon className="w-4 h-4 text-green-400" />
-                                <span className="text-green-400 text-sm">AI Model Selection</span>
+                                <CheckCircleIcon className="w-4 h-4 text-success" />
+                                <span className="text-muted-foreground text-sm">AI Model Selection</span>
                               </div>
                               <div className="flex items-center space-x-2">
-                                <CheckCircleIcon className="w-4 h-4 text-green-400" />
-                                <span className="text-green-400 text-sm">Intelligent Preprocessing</span>
+                                <CheckCircleIcon className="w-4 h-4 text-success" />
+                                <span className="text-muted-foreground text-sm">Intelligent Preprocessing</span>
                               </div>
                               <div className="flex items-center space-x-2">
-                                <CheckCircleIcon className="w-4 h-4 text-green-400" />
-                                <span className="text-green-400 text-sm">Auto Hyperparameters</span>
+                                <CheckCircleIcon className="w-4 h-4 text-success" />
+                                <span className="text-muted-foreground text-sm">Auto Hyperparameters</span>
                               </div>
                               <div className="flex items-center space-x-2">
-                                <CheckCircleIcon className="w-4 h-4 text-green-400" />
-                                <span className="text-green-400 text-sm">Enhanced Validation</span>
+                                <CheckCircleIcon className="w-4 h-4 text-success" />
+                                <span className="text-muted-foreground text-sm">Enhanced Validation</span>
                               </div>
                             </div>
                           </div>
@@ -820,14 +871,14 @@ export default function EnhancedTrainPage({ params }: { params: Promise<{ sessio
                     </Card>
 
                     {/* AI Summary Generation */}
-                    <Card className="max-w-5xl mx-auto glass border-purple-400/50">
+                    <Card className="max-w-5xl mx-auto">
                       <CardHeader>
-                        <CardTitle className="text-white flex items-center">
-                          <SparklesIcon className="w-5 h-5 mr-2" />
+                        <CardTitle className="text-foreground flex items-center">
+                          <SparklesIcon className="w-5 h-5 mr-2 text-primary" />
                           AI Enhanced Training Summary
                         </CardTitle>
-                        <CardDescription className="text-purple-200">
-                          Get AI-powered insights about your enhanced model's performance and recommendations
+                        <CardDescription className="text-muted-foreground">
+                          Get AI-powered insights about your enhanced model&apos;s performance and recommendations
                         </CardDescription>
                       </CardHeader>
                       <CardContent>
@@ -856,12 +907,13 @@ export default function EnhancedTrainPage({ params }: { params: Promise<{ sessio
                               }
                             }}
                             size="lg"
-                            className="group bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600"
+                            variant="secondary"
+                            className="group"
                           >
-                            <SparklesIcon className="w-5 h-5 mr-2 group-hover:scale-110 transition-transform" />
+                            <SparklesIcon className="w-5 h-5 mr-2" />
                             Generate Enhanced Summary
                           </Button>
-                          <p className="text-purple-300 text-sm mt-2">
+                          <p className="text-muted-foreground text-sm mt-2">
                             Powered by OpenRouter + DeepSeek with enhanced insights
                           </p>
                         </div>
@@ -872,32 +924,17 @@ export default function EnhancedTrainPage({ params }: { params: Promise<{ sessio
 
                 {/* Action Buttons */}
                 <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                  <Button asChild size="xl" className="group bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600">
+                  <Button asChild size="xl" className="group">
                     <Link href={`/predict/${trainingState.modelId}`}>
-                      Start Making Predictions
+                      Make Predictions
                       <ArrowRightIcon className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
                     </Link>
                   </Button>
 
-                  <Button asChild size="xl" variant="outline" className="group border-purple-400 text-purple-300 hover:bg-purple-400 hover:text-white">
+                  <Button asChild size="xl" variant="outline">
                     <Link href={`/summary/${trainingState.modelId}`}>
                       View Detailed Summary
-                      <ArrowRightIcon className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
                     </Link>
-                  </Button>
-
-                  <Button
-                    variant="outline"
-                    size="xl"
-                    onClick={() => {
-                      setTrainingState({ isTraining: false, progress: 0, currentStep: '' })
-                      setSelectedTarget('')
-                      setSelectedModel('')
-                      setModelRecommendations([])
-                    }}
-                    className="border-purple-400 text-purple-300 hover:bg-purple-400 hover:text-white"
-                  >
-                    Train Another Enhanced Model
                   </Button>
                 </div>
               </motion.div>

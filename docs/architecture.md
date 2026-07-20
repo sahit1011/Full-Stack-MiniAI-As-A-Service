@@ -1,4 +1,4 @@
-# 🏗️ System Architecture - Othor AI Assignment
+# 🏗️ System Architecture - Klaro Assignment
 
 ## 📊 High-Level Architecture
 

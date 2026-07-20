@@ -97,15 +97,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const signup = async (userData: SignupData): Promise<boolean> => {
-    try {
-      await apiService.signup(userData)
-      toast.success('Account created successfully! Please sign in.')
-      return true
-    } catch (error) {
-      console.error('Signup error:', error)
-      toast.error('Signup failed. Please try again.')
-      return false
-    }
+    // Let the caller (signup page) surface field-level backend errors — don't swallow them here.
+    await apiService.signup({ ...userData, full_name: userData.full_name ?? '' })
+    toast.success('Account created!')
+    return true
   }
 
   const logout = () => {

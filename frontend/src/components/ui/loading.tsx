@@ -36,7 +36,7 @@ export function Loading({
             <motion.div
               key={i}
               className={cn(
-                "bg-purple-500 rounded-full",
+                "bg-primary rounded-full",
                 size === "sm" ? "w-2 h-2" : size === "lg" ? "w-4 h-4" : "w-3 h-3"
               )}
               animate={{
@@ -52,7 +52,7 @@ export function Loading({
           ))}
         </div>
         {text && (
-          <p className={cn("text-purple-200", textSizeClasses[size])}>
+          <p className={cn("text-muted-foreground", textSizeClasses[size])}>
             {text}
           </p>
         )}
@@ -65,7 +65,7 @@ export function Loading({
       <div className={cn("flex flex-col items-center space-y-4", className)}>
         <motion.div
           className={cn(
-            "bg-gradient-to-r from-purple-500 to-pink-500 rounded-full",
+            "bg-primary rounded-full",
             sizeClasses[size]
           )}
           animate={{
@@ -79,7 +79,7 @@ export function Loading({
           }}
         />
         {text && (
-          <p className={cn("text-purple-200", textSizeClasses[size])}>
+          <p className={cn("text-muted-foreground", textSizeClasses[size])}>
             {text}
           </p>
         )}
@@ -92,7 +92,7 @@ export function Loading({
       <div className={cn("flex flex-col items-center space-y-4", className)}>
         <motion.div
           className={cn(
-            "border-2 border-purple-500/30 border-t-purple-500 rounded-full",
+            "border-2 border-border border-t-primary rounded-full",
             sizeClasses[size]
           )}
           animate={{ rotate: 360 }}
@@ -103,7 +103,7 @@ export function Loading({
           }}
         />
         {text && (
-          <p className={cn("text-purple-200", textSizeClasses[size])}>
+          <p className={cn("text-muted-foreground", textSizeClasses[size])}>
             {text}
           </p>
         )}
@@ -116,7 +116,7 @@ export function Loading({
     <div className={cn("flex flex-col items-center space-y-4", className)}>
       <motion.div
         className={cn(
-          "bg-gradient-to-r from-purple-500 to-pink-500 rounded-2xl flex items-center justify-center",
+          "bg-primary rounded-lg flex items-center justify-center",
           sizeClasses[size]
         )}
         animate={{ rotate: 360 }}
@@ -127,7 +127,7 @@ export function Loading({
         }}
       >
         <motion.div
-          className="text-white font-bold"
+          className="text-foreground font-bold"
           animate={{
             scale: [1, 1.2, 1]
           }}
@@ -141,7 +141,7 @@ export function Loading({
         </motion.div>
       </motion.div>
       {text && (
-        <p className={cn("text-purple-200", textSizeClasses[size])}>
+        <p className={cn("text-muted-foreground", textSizeClasses[size])}>
           {text}
         </p>
       )}
@@ -168,7 +168,7 @@ export function LoadingOverlay({
         initial={{ scale: 0.8, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.8, opacity: 0 }}
-        className="bg-card/90 backdrop-blur-md rounded-2xl p-8 border border-white/20"
+        className="bg-card/90 backdrop-blur-md rounded-lg p-8 border border-border"
       >
         <Loading variant={variant} size="lg" text={text} />
       </motion.div>
@@ -189,7 +189,7 @@ export function PageLoading({
       <div className="text-center max-w-md">
         <Loading size="lg" className="mb-6" />
         <motion.h2 
-          className="text-2xl font-bold text-white mb-2"
+          className="text-2xl font-bold text-foreground mb-2"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
@@ -197,7 +197,7 @@ export function PageLoading({
           {title}
         </motion.h2>
         <motion.p 
-          className="text-purple-200"
+          className="text-muted-foreground"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4 }}
@@ -217,7 +217,7 @@ export function Skeleton({
   return (
     <div
       className={cn(
-        "animate-pulse rounded-md bg-white/10",
+        "animate-pulse rounded-md bg-elevated",
         className
       )}
       {...props}

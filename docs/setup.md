@@ -1,4 +1,4 @@
-# 🚀 Setup Guide - Othor AI Assignment
+# 🚀 Setup Guide - Klaro Assignment
 
 ## 📋 Prerequisites
 

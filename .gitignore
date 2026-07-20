@@ -136,6 +136,9 @@ pids
 # Data directories
 data/uploads/*
 data/models/*
+data/*.db
+data/*.sqlite
+data/*.sqlite3
 !data/uploads/.gitkeep
 !data/models/.gitkeep
 !data/samples/
@@ -178,7 +181,8 @@ desktop.ini
 othor-ai-assignment.txt
 
 # Docker
-.dockerignore
+# NOTE: .dockerignore MUST be committed — it defines the build context Render uses
+# and is what keeps the local .env/secrets out of the image. Do not ignore it.
 
 # Environment variables
 .env.local

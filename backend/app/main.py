@@ -18,7 +18,7 @@ from .database.database import create_tables
 
 # Create FastAPI app instance
 app = FastAPI(
-    title="Othor AI - Mini AI Analyst as a Service",
+    title="Klaro - Mini AI Analyst as a Service",
     description="A microservice for CSV data analysis, ML model training, and predictions",
     version="1.0.0",
     docs_url="/docs",
@@ -31,17 +31,24 @@ async def startup_event():
     """Initialize database tables on application startup"""
     create_tables()
 
-# Configure CORS
+# Configure CORS.
+# Origins come from the ALLOWED_ORIGINS env var (comma-separated) so the deployed
+# frontend (e.g. the Vercel URL) can be whitelisted in production without a code
+# change. Falls back to the local dev ports when the var is unset.
+_DEFAULT_ORIGINS = (
+    "http://localhost:3000,http://127.0.0.1:3000,"
+    "http://localhost:3001,http://127.0.0.1:3001,"
+    "http://localhost:3002,http://127.0.0.1:3002"
+)
+allowed_origins = [
+    origin.strip()
+    for origin in os.getenv("ALLOWED_ORIGINS", _DEFAULT_ORIGINS).split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:3001",
-        "http://127.0.0.1:3001",
-        "http://localhost:3002",
-        "http://127.0.0.1:3002"
-    ],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -63,7 +70,7 @@ async def health_check():
     """Health check endpoint"""
     return {
         "status": "healthy",
-        "message": "Othor AI API is running",
+        "message": "Klaro API is running",
         "version": "1.0.0"
     }
 
@@ -72,7 +79,7 @@ async def health_check():
 async def root():
     """Root endpoint"""
     return {
-        "message": "Welcome to Othor AI - Mini AI Analyst as a Service",
+        "message": "Welcome to Klaro - Mini AI Analyst as a Service",
         "docs": "/docs",
         "health": "/health"
     }

@@ -16,7 +16,8 @@ import {
   EnvelopeIcon,
   ArrowRightIcon,
   SparklesIcon,
-  UserPlusIcon
+  UserPlusIcon,
+  ExclamationCircleIcon
 } from "@heroicons/react/24/outline"
 
 export default function SignupPage() {
@@ -28,7 +29,8 @@ export default function SignupPage() {
     confirmPassword: ""
   })
   const [isLoading, setIsLoading] = useState(false)
-  const { signup } = useAuth()
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const { signup, login } = useAuth()
   const router = useRouter()
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -37,18 +39,66 @@ export default function SignupPage() {
       ...prev,
       [name]: value
     }))
+    // Clear the inline error for this field as the user edits it
+    setErrors(prev => {
+      if (!prev[name]) return prev
+      const next = { ...prev }
+      delete next[name]
+      return next
+    })
+  }
+
+  // Client-side checks mirror the backend rules (username >=3, valid email, password >=6)
+  // so obvious problems surface instantly without a round-trip.
+  const validate = () => {
+    const nextErrors: Record<string, string> = {}
+
+    if (formData.username.trim().length < 3) {
+      nextErrors.username = "Username must be at least 3 characters."
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+      nextErrors.email = "Enter a valid email address."
+    }
+    if (formData.password.length < 6) {
+      nextErrors.password = "Password must be at least 6 characters long."
+    }
+    if (formData.password !== formData.confirmPassword) {
+      nextErrors.confirmPassword = "Passwords do not match."
+    }
+
+    setErrors(nextErrors)
+    return Object.keys(nextErrors).length === 0
+  }
+
+  // Map a backend error onto the right field(s): FastAPI 422 returns a list of
+  // {loc, msg}; our 400s return a string detail ("Email already registered", etc.).
+  const parseSignupError = (error: any): Record<string, string> => {
+    const detail = error?.response?.data?.detail
+    if (Array.isArray(detail)) {
+      const out: Record<string, string> = {}
+      for (const d of detail) {
+        const field = Array.isArray(d.loc) ? String(d.loc[d.loc.length - 1]) : ""
+        const msg = (d.msg || "Invalid value").replace(/^Value error,\s*/i, "")
+        if (field && field in formData) out[field] = msg
+        else out._general = msg
+      }
+      return out
+    }
+    if (typeof detail === "string") {
+      if (/email/i.test(detail)) return { email: detail }
+      if (/username/i.test(detail)) return { username: detail }
+      return { _general: detail }
+    }
+    if (error?.message === "Network Error") {
+      return { _general: "Can't reach the server — is the backend running?" }
+    }
+    return { _general: "Signup failed. Please try again." }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (formData.password !== formData.confirmPassword) {
-      toast.error("Passwords do not match!")
-      return
-    }
-
-    if (formData.password.length < 6) {
-      toast.error("Password must be at least 6 characters long!")
+    if (!validate()) {
       return
     }
 
@@ -56,12 +106,14 @@ export default function SignupPage() {
 
     try {
       const { confirmPassword, ...signupData } = formData
-      const success = await signup(signupData)
-      if (success) {
-        router.push("/login")
-      }
+      await signup(signupData)
+      // Registered — auto-login with the same credentials and continue into the pipeline.
+      const loggedIn = await login(signupData.username, signupData.password)
+      router.push(loggedIn ? "/upload" : "/login")
     } catch (error) {
-      console.error("Signup error:", error)
+      const fieldErrors = parseSignupError(error)
+      setErrors(fieldErrors)
+      if (fieldErrors._general) toast.error(fieldErrors._general)
     } finally {
       setIsLoading(false)
     }
@@ -70,39 +122,41 @@ export default function SignupPage() {
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
+        initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
+        transition={{ duration: 0.4 }}
         className="w-full max-w-md"
       >
         {/* Logo/Brand */}
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.1, duration: 0.5 }}
-          className="text-center mb-8"
-        >
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 mb-4">
-            <SparklesIcon className="w-8 h-8 text-white" />
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-lg bg-elevated text-primary mb-4">
+            <SparklesIcon className="w-8 h-8" />
           </div>
-          <h1 className="text-3xl font-bold text-white mb-2">Join Othor AI</h1>
-          <p className="text-gray-400">Create your account to get started</p>
-        </motion.div>
+          <h1 className="text-3xl font-bold text-foreground mb-2">Join Klaro</h1>
+          <p className="text-muted-foreground">Create your account to get started</p>
+        </div>
 
         {/* Signup Form */}
-        <Card className="bg-white/10 backdrop-blur-lg border-white/20 shadow-2xl">
+        <Card className="border border-border bg-card">
           <CardHeader className="space-y-1">
-            <CardTitle className="text-2xl text-center text-white">Create Account</CardTitle>
-            <CardDescription className="text-center text-gray-300">
+            <CardTitle className="text-2xl text-center text-foreground">Create Account</CardTitle>
+            <CardDescription className="text-center text-muted-foreground">
               Fill in your details to create your account
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+              {errors._general && (
+                <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/15 p-3 text-sm text-destructive">
+                  <ExclamationCircleIcon className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>{errors._general}</span>
+                </div>
+              )}
+
               <div className="space-y-2">
-                <Label htmlFor="username" className="text-white">Username</Label>
+                <Label htmlFor="username" className="text-foreground">Username</Label>
                 <div className="relative">
-                  <UserIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                   <Input
                     id="username"
                     name="username"
@@ -111,15 +165,22 @@ export default function SignupPage() {
                     value={formData.username}
                     onChange={handleInputChange}
                     required
-                    className="pl-10 bg-white/10 border-white/20 text-white placeholder:text-gray-400 focus:border-purple-500"
+                    aria-invalid={!!errors.username}
+                    className={`pl-10 ${errors.username ? "border-destructive" : ""}`}
                   />
                 </div>
+                {errors.username && (
+                  <p className="flex items-center gap-1.5 text-sm text-destructive">
+                    <ExclamationCircleIcon className="w-4 h-4 shrink-0" />
+                    {errors.username}
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="email" className="text-white">Email</Label>
+                <Label htmlFor="email" className="text-foreground">Email</Label>
                 <div className="relative">
-                  <EnvelopeIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <EnvelopeIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                   <Input
                     id="email"
                     name="email"
@@ -128,15 +189,22 @@ export default function SignupPage() {
                     value={formData.email}
                     onChange={handleInputChange}
                     required
-                    className="pl-10 bg-white/10 border-white/20 text-white placeholder:text-gray-400 focus:border-purple-500"
+                    aria-invalid={!!errors.email}
+                    className={`pl-10 ${errors.email ? "border-destructive" : ""}`}
                   />
                 </div>
+                {errors.email && (
+                  <p className="flex items-center gap-1.5 text-sm text-destructive">
+                    <ExclamationCircleIcon className="w-4 h-4 shrink-0" />
+                    {errors.email}
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="full_name" className="text-white">Full Name (Optional)</Label>
+                <Label htmlFor="full_name" className="text-foreground">Full Name (Optional)</Label>
                 <div className="relative">
-                  <UserPlusIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <UserPlusIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                   <Input
                     id="full_name"
                     name="full_name"
@@ -144,15 +212,15 @@ export default function SignupPage() {
                     placeholder="Enter your full name"
                     value={formData.full_name}
                     onChange={handleInputChange}
-                    className="pl-10 bg-white/10 border-white/20 text-white placeholder:text-gray-400 focus:border-purple-500"
+                    className="pl-10"
                   />
                 </div>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password" className="text-white">Password</Label>
+                <Label htmlFor="password" className="text-foreground">Password</Label>
                 <div className="relative">
-                  <LockClosedIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <LockClosedIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                   <Input
                     id="password"
                     name="password"
@@ -161,15 +229,23 @@ export default function SignupPage() {
                     value={formData.password}
                     onChange={handleInputChange}
                     required
-                    className="pl-10 bg-white/10 border-white/20 text-white placeholder:text-gray-400 focus:border-purple-500"
+                    aria-invalid={!!errors.password}
+                    aria-describedby={errors.password ? "password-error" : undefined}
+                    className={`pl-10 ${errors.password ? "border-destructive" : ""}`}
                   />
                 </div>
+                {errors.password && (
+                  <p id="password-error" className="flex items-center gap-1.5 text-sm text-destructive">
+                    <ExclamationCircleIcon className="w-4 h-4 shrink-0" />
+                    {errors.password}
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="confirmPassword" className="text-white">Confirm Password</Label>
+                <Label htmlFor="confirmPassword" className="text-foreground">Confirm Password</Label>
                 <div className="relative">
-                  <LockClosedIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <LockClosedIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                   <Input
                     id="confirmPassword"
                     name="confirmPassword"
@@ -178,19 +254,27 @@ export default function SignupPage() {
                     value={formData.confirmPassword}
                     onChange={handleInputChange}
                     required
-                    className="pl-10 bg-white/10 border-white/20 text-white placeholder:text-gray-400 focus:border-purple-500"
+                    aria-invalid={!!errors.confirmPassword}
+                    aria-describedby={errors.confirmPassword ? "confirmPassword-error" : undefined}
+                    className={`pl-10 ${errors.confirmPassword ? "border-destructive" : ""}`}
                   />
                 </div>
+                {errors.confirmPassword && (
+                  <p id="confirmPassword-error" className="flex items-center gap-1.5 text-sm text-destructive">
+                    <ExclamationCircleIcon className="w-4 h-4 shrink-0" />
+                    {errors.confirmPassword}
+                  </p>
+                )}
               </div>
 
               <Button
                 type="submit"
                 disabled={isLoading}
-                className="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-semibold py-2 px-4 rounded-lg transition-all duration-200 transform hover:scale-105"
+                className="w-full"
               >
                 {isLoading ? (
                   <div className="flex items-center justify-center">
-                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-current mr-2"></div>
                     Creating Account...
                   </div>
                 ) : (
@@ -203,11 +287,11 @@ export default function SignupPage() {
             </form>
 
             <div className="mt-6 text-center">
-              <p className="text-gray-300">
+              <p className="text-muted-foreground">
                 Already have an account?{" "}
                 <Link
                   href="/login"
-                  className="text-purple-400 hover:text-purple-300 font-semibold transition-colors"
+                  className="text-primary hover:text-primary/80 font-semibold transition-colors"
                 >
                   Sign in here
                 </Link>
@@ -217,19 +301,14 @@ export default function SignupPage() {
         </Card>
 
         {/* Back to Home */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.3, duration: 0.5 }}
-          className="text-center mt-6"
-        >
+        <div className="text-center mt-6">
           <Link
             href="/"
-            className="text-gray-400 hover:text-white transition-colors inline-flex items-center"
+            className="text-muted-foreground hover:text-foreground transition-colors inline-flex items-center"
           >
             ← Back to Home
           </Link>
-        </motion.div>
+        </div>
       </motion.div>
     </div>
   )

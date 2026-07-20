@@ -6,10 +6,10 @@ version: '3.8'
 services:
   postgres:
     image: postgres:15
-    container_name: othor_ai_postgres
+    container_name: klaro_postgres
     environment:
-      POSTGRES_DB: othor_ai
-      POSTGRES_USER: othor_user
+      POSTGRES_DB: klaro
+      POSTGRES_USER: klaro_user
       POSTGRES_PASSWORD: othor_secure_pass_2024
       POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256 --auth-local=scram-sha-256"
     ports:
@@ -19,7 +19,7 @@ services:
       - ./init-scripts:/docker-entrypoint-initdb.d
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U othor_user -d othor_ai"]
+      test: ["CMD-SHELL", "pg_isready -U klaro_user -d klaro"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -27,7 +27,7 @@ services:
   # Optional: pgAdmin for database management
   pgadmin:
     image: dpage/pgadmin4:latest
-    container_name: othor_ai_pgadmin
+    container_name: klaro_pgadmin
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@othor.ai
       PGADMIN_DEFAULT_PASSWORD: admin123
@@ -48,4 +48,4 @@ volumes:
 
 networks:
   default:
-    name: othor_ai_network
+    name: klaro_network

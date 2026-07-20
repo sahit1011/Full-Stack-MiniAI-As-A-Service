@@ -1,7 +1,7 @@
-# Othor AI - Local Development Startup Script for PowerShell
+# Klaro - Local Development Startup Script for PowerShell
 # This script starts both frontend and backend servers locally
 
-Write-Host "Starting Othor AI - Local Development Mode" -ForegroundColor Green
+Write-Host "Starting Klaro - Local Development Mode" -ForegroundColor Green
 Write-Host "===============================================" -ForegroundColor Green
 Write-Host ""
 
@@ -94,7 +94,7 @@ Write-Host "⏳ Waiting for services to be ready..." -ForegroundColor Cyan
 Start-Sleep -Seconds 10
 
 Write-Host ""
-Write-Host "🎉 Othor AI Local Development is starting up!" -ForegroundColor Green
+Write-Host "🎉 Klaro Local Development is starting up!" -ForegroundColor Green
 Write-Host ""
 Write-Host "📱 Access the application:" -ForegroundColor Cyan
 Write-Host "   Frontend:  http://localhost:3000" -ForegroundColor White

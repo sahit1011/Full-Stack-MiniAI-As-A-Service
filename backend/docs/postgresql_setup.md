@@ -44,9 +44,9 @@ pip install psycopg2-binary==2.9.9
 sudo -u postgres psql
 
 -- Create database and user
-CREATE DATABASE othor_ai;
-CREATE USER othor_user WITH PASSWORD 'your_secure_password';
-GRANT ALL PRIVILEGES ON DATABASE othor_ai TO othor_user;
+CREATE DATABASE klaro;
+CREATE USER klaro_user WITH PASSWORD 'your_secure_password';
+GRANT ALL PRIVILEGES ON DATABASE klaro TO klaro_user;
 
 -- Exit PostgreSQL
 \q
@@ -58,13 +58,13 @@ Create or update your `.env` file:
 
 ```bash
 # PostgreSQL Configuration
-DATABASE_URL=postgresql://othor_user:your_secure_password@localhost:5432/othor_ai
+DATABASE_URL=postgresql://klaro_user:your_secure_password@localhost:5432/klaro
 
 # Alternative format for some deployments
 POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
-POSTGRES_DB=othor_ai
-POSTGRES_USER=othor_user
+POSTGRES_DB=klaro
+POSTGRES_USER=klaro_user
 POSTGRES_PASSWORD=your_secure_password
 ```
 
@@ -72,7 +72,7 @@ POSTGRES_PASSWORD=your_secure_password
 
 ```bash
 # Test PostgreSQL connection
-psql -h localhost -U othor_user -d othor_ai -c "SELECT version();"
+psql -h localhost -U klaro_user -d klaro -c "SELECT version();"
 ```
 
 ## 🚀 Migration Process
@@ -109,7 +109,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8001
 
 ```sql
 -- Connect to PostgreSQL
-psql -h localhost -U othor_user -d othor_ai
+psql -h localhost -U klaro_user -d klaro
 
 -- List tables
 \dt
@@ -145,8 +145,8 @@ services:
   postgres:
     image: postgres:15
     environment:
-      POSTGRES_DB: othor_ai
-      POSTGRES_USER: othor_user
+      POSTGRES_DB: klaro
+      POSTGRES_USER: klaro_user
       POSTGRES_PASSWORD: your_secure_password
     ports:
       - "5432:5432"
@@ -198,20 +198,20 @@ The application includes production-ready PostgreSQL settings:
    ```bash
    # Reset password
    sudo -u postgres psql
-   ALTER USER othor_user PASSWORD 'new_password';
+   ALTER USER klaro_user PASSWORD 'new_password';
    ```
 
 3. **Database Does Not Exist**
    ```sql
    -- Create database
-   CREATE DATABASE othor_ai;
+   CREATE DATABASE klaro;
    ```
 
 4. **Permission Denied**
    ```sql
    -- Grant permissions
-   GRANT ALL PRIVILEGES ON DATABASE othor_ai TO othor_user;
-   GRANT ALL ON SCHEMA public TO othor_user;
+   GRANT ALL PRIVILEGES ON DATABASE klaro TO klaro_user;
+   GRANT ALL ON SCHEMA public TO klaro_user;
    ```
 
 ## ✅ Benefits of PostgreSQL

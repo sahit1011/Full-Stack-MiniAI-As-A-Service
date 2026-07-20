@@ -1,8 +1,8 @@
 @echo off
-REM Othor AI - Local Development Startup Script for Windows
+REM Klaro - Local Development Startup Script for Windows
 REM This script starts both frontend and backend servers locally
 
-echo 🚀 Starting Othor AI - Local Development Mode
+echo 🚀 Starting Klaro - Local Development Mode
 echo ===============================================
 
 REM Check if Python is installed
@@ -77,7 +77,7 @@ echo ⏳ Waiting for services to be ready...
 timeout /t 10 /nobreak >nul
 
 echo.
-echo 🎉 Othor AI Local Development is starting up!
+echo 🎉 Klaro Local Development is starting up!
 echo.
 echo 📱 Access the application:
 echo    Frontend:  http://localhost:3000

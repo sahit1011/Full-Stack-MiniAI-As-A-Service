@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from ..models.upload import UploadResponse, UploadError, FileValidationError
 from ..core.file_handler import file_handler
 from ..core.data_processor import data_processor
-from ..auth.dependencies import get_current_user
+from ..auth.dependencies import get_current_user, verify_session_access
 from ..database.models import User, FileMetadata
 from ..database.database import get_db
 
@@ -156,17 +156,24 @@ async def upload_csv_file(
 
 
 @router.get("/session/{session_id}/info")
-async def get_upload_info(session_id: str) -> Dict[str, Any]:
+async def get_upload_info(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
     """
     Get information about an uploaded file by session ID.
-    
+
     **Parameters:**
     - session_id: The session ID returned from the upload endpoint
-    
+
     **Returns:**
     - Basic file and dataset information
     """
     try:
+        # Ownership check — only the uploader may inspect this session (prevents IDOR)
+        verify_session_access(session_id, current_user, db)
+
         # Check if file exists
         file_path = file_handler.get_file_path(session_id)
         if not file_path:

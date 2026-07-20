@@ -1,5 +1,5 @@
 """
-PostgreSQL setup script for Othor AI.
+PostgreSQL setup script for Klaro.
 This script helps set up PostgreSQL database and migrate from SQLite if needed.
 """
 import os
@@ -35,8 +35,8 @@ def create_database_and_user():
     db_config = {
         'host': 'localhost',
         'port': 5432,
-        'database': 'othor_ai',
-        'user': 'othor_user',
+        'database': 'klaro',
+        'user': 'klaro_user',
         'password': 'othor_secure_pass_2024'
     }
     
@@ -108,7 +108,7 @@ def create_env_file(database_url):
     """Create .env file with PostgreSQL configuration."""
     print("\n📝 Creating .env file...")
     
-    env_content = f"""# Environment Configuration for Othor AI Backend
+    env_content = f"""# Environment Configuration for Klaro Backend
 
 # Database Configuration (PostgreSQL)
 DATABASE_URL={database_url}
@@ -132,7 +132,7 @@ OPENROUTER_API_KEY=your_openrouter_api_key_here
 OPENROUTER_MODEL=deepseek/deepseek-chat
 
 # Application Configuration
-APP_NAME=Othor AI - Mini AI Analyst
+APP_NAME=Klaro - Mini AI Analyst
 APP_VERSION=1.0.0
 
 # CORS Configuration
@@ -154,7 +154,7 @@ LOG_FILE=logs/app.log
 
 def migrate_sqlite_data(database_url):
     """Migrate existing data from SQLite to PostgreSQL."""
-    sqlite_path = "data/othor_ai.db"
+    sqlite_path = "data/klaro.db"
     
     if not os.path.exists(sqlite_path):
         print("ℹ️  No existing SQLite database found. Starting fresh.")
@@ -179,7 +179,7 @@ def migrate_sqlite_data(database_url):
         # For now, we'll let the application create the tables fresh
         # This is safer than trying to migrate schema differences
         print("ℹ️  Skipping data migration - will start with fresh PostgreSQL database")
-        print("   (Existing SQLite data is preserved in data/othor_ai.db)")
+        print("   (Existing SQLite data is preserved in data/klaro.db)")
         
         sqlite_conn.close()
         return True
@@ -190,7 +190,7 @@ def migrate_sqlite_data(database_url):
 
 def main():
     """Main setup function."""
-    print("🐘 PostgreSQL Setup for Othor AI")
+    print("🐘 PostgreSQL Setup for Klaro")
     print("=" * 50)
     
     # Check if PostgreSQL is installed

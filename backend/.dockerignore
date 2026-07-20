@@ -1,0 +1,46 @@
+# Keep secrets, local state, and dev cruft OUT of the Docker build context.
+# Without this, `COPY . .` would bake the local .env (real secrets), the venv,
+# uploaded data, and caches into the image.
+
+# Secrets & env
+.env
+.env.*
+!.env.example
+
+# Virtual environments
+.venv
+venv
+env
+ENV
+
+# Python caches / build artifacts
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Local data & logs (persisted in Supabase Storage / mounted volumes in prod)
+data/uploads/*
+data/models/*
+data/*.db
+data/*.sqlite*
+logs/*
+*.log
+
+# Tests & local tooling
+tests/
+test_*.py
+check_database.py
+setup_database.py
+setup_postgresql.py
+
+# VCS / editor / OS
+.git
+.gitignore
+.vscode/
+.idea/
+.DS_Store

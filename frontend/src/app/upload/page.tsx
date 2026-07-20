@@ -9,13 +9,13 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import ProtectedRoute from "@/components/ProtectedRoute"
+import PipelineStepper from "@/components/PipelineStepper"
 import { useAuth } from "@/contexts/AuthContext"
 import {
   CloudArrowUpIcon,
   DocumentTextIcon,
   CheckCircleIcon,
   ExclamationTriangleIcon,
-  ArrowLeftIcon,
   ArrowRightIcon,
   SparklesIcon,
   XMarkIcon,
@@ -162,7 +162,7 @@ export default function UploadPage() {
       if (link.download !== undefined) {
         const url = URL.createObjectURL(blob)
         link.setAttribute('href', url)
-        link.setAttribute('download', 'othor_ai_sample_data.csv')
+        link.setAttribute('download', 'klaro_sample_data.csv')
         link.style.visibility = 'hidden'
         document.body.appendChild(link)
         link.click()
@@ -182,6 +182,7 @@ export default function UploadPage() {
   return (
     <ProtectedRoute>
       <div className="min-h-screen pt-20">
+      <PipelineStepper current="upload" sessionId={uploadResult?.session_id} />
       {/* Main Content */}
       <main className="relative z-10 px-6 py-12">
         <div className="max-w-4xl mx-auto">
@@ -202,10 +203,10 @@ export default function UploadPage() {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.2 }}
                   >
-                    <h1 className="text-4xl md:text-6xl font-bold text-white mb-4">
+                    <h1 className="text-4xl md:text-6xl font-bold text-foreground mb-4">
                       Upload Your Data
                     </h1>
-                    <p className="text-xl text-purple-200 max-w-2xl mx-auto">
+                    <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
                       Drop your CSV file and let our AI analyze it for insights
                     </p>
                   </motion.div>
@@ -223,44 +224,37 @@ export default function UploadPage() {
                       <div
                         {...getRootProps()}
                         className={cn(
-                          "relative p-12 border-2 border-dashed rounded-2xl transition-all duration-300 cursor-pointer",
-                          isDragActive && !isDragReject && "border-purple-400 bg-purple-500/10",
-                          isDragReject && "border-red-400 bg-red-500/10",
-                          !isDragActive && "border-purple-300/50 hover:border-purple-400 hover:bg-purple-500/5"
+                          "relative p-12 border-2 border-dashed rounded-lg transition-colors duration-200 cursor-pointer",
+                          isDragActive && !isDragReject && "border-primary/40 bg-elevated",
+                          isDragReject && "border-destructive/40 bg-destructive/15",
+                          !isDragActive && "border-border hover:border-primary/40 hover:bg-elevated"
                         )}
                       >
                         <input {...getInputProps()} />
-                        
+
                         <div className="text-center">
-                          <motion.div
-                            animate={{ 
-                              y: isDragActive ? -10 : 0,
-                              scale: isDragActive ? 1.1 : 1
-                            }}
-                            transition={{ duration: 0.2 }}
-                            className="w-16 h-16 mx-auto mb-6 bg-gradient-to-r from-purple-500 to-pink-500 rounded-2xl flex items-center justify-center"
-                          >
-                            <CloudArrowUpIcon className="w-8 h-8 text-white" />
-                          </motion.div>
+                          <div className="w-16 h-16 mx-auto mb-6 bg-elevated text-primary rounded-lg flex items-center justify-center">
+                            <CloudArrowUpIcon className="w-8 h-8" />
+                          </div>
 
                           {isDragActive ? (
                             <div>
-                              <h3 className="text-2xl font-bold text-white mb-2">
-                                Drop your file here
+                              <h3 className="text-2xl font-bold text-foreground mb-2">
+                                {isDragReject ? "Unsupported file type" : "Drop your file here"}
                               </h3>
-                              <p className="text-purple-200">
-                                Release to upload your CSV file
+                              <p className={isDragReject ? "text-destructive" : "text-muted-foreground"}>
+                                {isDragReject ? "CSV files only" : "Release to upload your CSV file"}
                               </p>
                             </div>
                           ) : (
                             <div>
-                              <h3 className="text-2xl font-bold text-white mb-2">
+                              <h3 className="text-2xl font-bold text-foreground mb-2">
                                 Drag & drop your CSV file
                               </h3>
-                              <p className="text-purple-200 mb-4">
+                              <p className="text-muted-foreground mb-4">
                                 or click to browse your files
                               </p>
-                              <Button variant="outline" className="border-purple-400 text-purple-300 hover:bg-purple-400 hover:text-white">
+                              <Button variant="outline">
                                 Choose File
                               </Button>
                             </div>
@@ -268,18 +262,18 @@ export default function UploadPage() {
                         </div>
 
                         {/* File Requirements */}
-                        <div className="mt-8 pt-8 border-t border-purple-300/20">
-                          <div className="grid md:grid-cols-3 gap-4 text-sm text-purple-200">
+                        <div className="mt-8 pt-8 border-t border-border">
+                          <div className="grid md:grid-cols-3 gap-4 text-sm text-muted-foreground">
                             <div className="flex items-center">
-                              <CheckCircleIcon className="w-4 h-4 text-green-400 mr-2" />
+                              <CheckCircleIcon className="w-4 h-4 text-success mr-2" />
                               CSV files only
                             </div>
                             <div className="flex items-center">
-                              <CheckCircleIcon className="w-4 h-4 text-green-400 mr-2" />
+                              <CheckCircleIcon className="w-4 h-4 text-success mr-2" />
                               Max 50MB size
                             </div>
                             <div className="flex items-center">
-                              <CheckCircleIcon className="w-4 h-4 text-green-400 mr-2" />
+                              <CheckCircleIcon className="w-4 h-4 text-success mr-2" />
                               Headers required
                             </div>
                           </div>
@@ -293,7 +287,7 @@ export default function UploadPage() {
                             initial={{ opacity: 0, height: 0 }}
                             animate={{ opacity: 1, height: "auto" }}
                             exit={{ opacity: 0, height: 0 }}
-                            className="p-6 border-t border-purple-300/20"
+                            className="p-6 border-t border-border"
                           >
                             <div className="flex items-center mb-4">
                               <motion.div
@@ -301,14 +295,14 @@ export default function UploadPage() {
                                 transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
                                 className="w-6 h-6 mr-3"
                               >
-                                <SparklesIcon className="w-6 h-6 text-purple-400" />
+                                <SparklesIcon className="w-6 h-6 text-primary" />
                               </motion.div>
-                              <span className="text-white font-medium">
+                              <span className="text-foreground font-medium">
                                 Uploading and analyzing your data...
                               </span>
                             </div>
-                            <Progress value={uploadProgress} variant="gradient" className="h-2" />
-                            <p className="text-purple-200 text-sm mt-2">
+                            <Progress value={uploadProgress} variant="default" className="h-2" />
+                            <p className="text-muted-foreground text-sm mt-2 font-mono tabular-nums">
                               {uploadProgress}% complete
                             </p>
                           </motion.div>
@@ -325,13 +319,13 @@ export default function UploadPage() {
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -10 }}
-                      className="mb-8 p-4 bg-red-500/20 border border-red-400/50 rounded-xl flex items-center"
+                      className="mb-8 p-4 bg-destructive/15 border border-destructive/40 rounded-lg flex items-center"
                     >
-                      <ExclamationTriangleIcon className="w-5 h-5 text-red-400 mr-3" />
-                      <span className="text-red-300">{error}</span>
+                      <ExclamationTriangleIcon className="w-5 h-5 text-destructive mr-3" />
+                      <span className="text-destructive">{error}</span>
                       <button
                         onClick={() => setError(null)}
-                        className="ml-auto text-red-400 hover:text-red-300"
+                        className="ml-auto text-destructive hover:text-destructive/80"
                       >
                         <XMarkIcon className="w-4 h-4" />
                       </button>
@@ -346,10 +340,10 @@ export default function UploadPage() {
                   transition={{ delay: 0.6 }}
                   className="text-center"
                 >
-                  <Card className="glass">
+                  <Card className="border border-border bg-card">
                     <CardHeader>
-                      <CardTitle className="text-white">Need sample data?</CardTitle>
-                      <CardDescription className="text-purple-200">
+                      <CardTitle className="text-foreground">Need sample data?</CardTitle>
+                      <CardDescription className="text-muted-foreground">
                         Download our demo customer dataset (25 rows, 8 columns) to test all features including data profiling, model training, and predictions
                       </CardDescription>
                     </CardHeader>
@@ -358,7 +352,7 @@ export default function UploadPage() {
                         variant="outline"
                         onClick={downloadSampleCSV}
                         disabled={downloading}
-                        className="border-purple-400 text-purple-300 hover:bg-purple-400 hover:text-white group"
+                        className="group"
                       >
                         {downloading ? (
                           <>
@@ -392,44 +386,77 @@ export default function UploadPage() {
                 transition={{ duration: 0.5 }}
                 className="text-center"
               >
-                <div className="w-24 h-24 mx-auto mb-8 bg-gradient-to-r from-green-500 to-emerald-500 rounded-2xl flex items-center justify-center">
-                  <CheckCircleIcon className="w-12 h-12 text-white" />
+                <div className="w-24 h-24 mx-auto mb-8 bg-elevated text-success rounded-lg flex items-center justify-center">
+                  <CheckCircleIcon className="w-12 h-12" />
                 </div>
 
-                <h1 className="text-4xl font-bold text-white mb-4">Upload Successful! 🎉</h1>
-                <p className="text-xl text-purple-200 mb-8">
+                <h1 className="text-4xl font-bold text-foreground mb-4">Upload Successful!</h1>
+                <p className="text-xl text-muted-foreground mb-8">
                   Your data has been processed and is ready for analysis
                 </p>
 
                 {/* File Info */}
-                <Card className="mb-8 glass">
+                <Card className="mb-8 border border-border bg-card">
                   <CardHeader>
-                    <CardTitle className="text-white flex items-center justify-center">
-                      <DocumentTextIcon className="w-5 h-5 mr-2" />
+                    <CardTitle className="text-foreground flex items-center justify-center">
+                      <DocumentTextIcon className="w-5 h-5 mr-2 text-muted-foreground" />
                       {uploadResult.filename}
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
                     <div className="grid md:grid-cols-4 gap-4 text-center">
                       <div>
-                        <div className="text-2xl font-bold text-white">{formatBytes(uploadResult.size)}</div>
-                        <div className="text-purple-200 text-sm">File Size</div>
+                        <div className="text-2xl font-bold text-foreground font-mono tabular-nums">{formatBytes(uploadResult.size)}</div>
+                        <div className="text-muted-foreground text-sm">File Size</div>
                       </div>
                       <div>
-                        <div className="text-2xl font-bold text-white">{uploadResult.rows.toLocaleString()}</div>
-                        <div className="text-purple-200 text-sm">Rows</div>
+                        <div className="text-2xl font-bold text-foreground font-mono tabular-nums">{uploadResult.rows.toLocaleString()}</div>
+                        <div className="text-muted-foreground text-sm">Rows</div>
                       </div>
                       <div>
-                        <div className="text-2xl font-bold text-white">{uploadResult.columns}</div>
-                        <div className="text-purple-200 text-sm">Columns</div>
+                        <div className="text-2xl font-bold text-foreground font-mono tabular-nums">{uploadResult.columns}</div>
+                        <div className="text-muted-foreground text-sm">Columns</div>
                       </div>
                       <div>
-                        <div className="text-2xl font-bold text-green-400">✓</div>
-                        <div className="text-purple-200 text-sm">Validated</div>
+                        <div className="text-2xl font-bold text-success">✓</div>
+                        <div className="text-muted-foreground text-sm">Validated</div>
                       </div>
                     </div>
                   </CardContent>
                 </Card>
+
+                {/* Detected Columns Preview */}
+                {uploadResult.data_schema && Object.keys(uploadResult.data_schema).length > 0 && (
+                  <Card className="mb-8 border border-border bg-card text-left">
+                    <CardHeader>
+                      <CardTitle className="text-foreground text-base">Detected columns</CardTitle>
+                      <CardDescription className="text-muted-foreground">
+                        <span className="font-mono tabular-nums">{Object.keys(uploadResult.data_schema).length}</span> columns parsed from your file
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex flex-wrap gap-2">
+                        {Object.entries(uploadResult.data_schema).map(([name, info]) => {
+                          const type =
+                            info && typeof info === "object"
+                              ? (info.dtype ?? info.type ?? info.data_type)
+                              : info
+                          return (
+                            <span
+                              key={name}
+                              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-elevated px-2.5 py-1 text-sm"
+                            >
+                              <span className="font-mono text-foreground">{name}</span>
+                              {type != null && (
+                                <span className="font-mono text-xs text-muted-foreground">{String(type)}</span>
+                              )}
+                            </span>
+                          )
+                        })}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
 
                 {/* Action Buttons */}
                 <div className="flex flex-col sm:flex-row gap-4 justify-center">
@@ -444,11 +471,10 @@ export default function UploadPage() {
                     </Link>
                   </Button>
 
-                  <Button 
-                    variant="outline" 
-                    size="xl" 
+                  <Button
+                    variant="outline"
+                    size="xl"
                     onClick={resetUpload}
-                    className="border-purple-400 text-purple-300 hover:bg-purple-400 hover:text-white"
                   >
                     Upload Another File
                   </Button>

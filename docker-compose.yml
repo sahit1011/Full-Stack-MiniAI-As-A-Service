@@ -1,4 +1,4 @@
-# Docker Compose configuration for Othor AI
+# Docker Compose configuration for Klaro
 
 services:
   backend:
@@ -19,7 +19,7 @@ services:
       - MAX_FILE_SIZE=52428800
       - SESSION_TIMEOUT=86400
       # Database configuration (SQLite fallback for simplicity)
-      - DATABASE_URL=sqlite:///./data/othor_ai.db
+      - DATABASE_URL=sqlite:///./data/klaro.db
       # JWT configuration
       - SECRET_KEY=othor-ai-docker-secret-key-2024
       - ALGORITHM=HS256
@@ -83,8 +83,8 @@ services:
   postgres:
     image: postgres:15-alpine
     environment:
-      POSTGRES_DB: othor_ai
-      POSTGRES_USER: othor_user
+      POSTGRES_DB: klaro
+      POSTGRES_USER: klaro_user
       POSTGRES_PASSWORD: othor_password
     ports:
       - "5432:5432"
@@ -92,7 +92,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./backend/init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U othor_user -d othor_ai"]
+      test: ["CMD-SHELL", "pg_isready -U klaro_user -d klaro"]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -1,0 +1,50 @@
+# Render blueprint for the Klaro backend (FastAPI + ML, Docker).
+# Frontend deploys separately on Vercel; Postgres + object storage are Supabase.
+#
+# Secrets (sync:false) are set in the Render dashboard / via CLI, never committed:
+#   DATABASE_URL          Supabase Postgres connection string (pooler, sslmode=require)
+#   OPENROUTER_API_KEY    for LLM-generated dataset summaries
+#   SUPABASE_URL          https://<project-ref>.supabase.co
+#   SUPABASE_SERVICE_KEY  service_role key (server-side; bypasses RLS)
+#   ALLOWED_ORIGINS       the deployed Vercel frontend origin(s)
+services:
+  - type: web
+    name: klaro-backend
+    runtime: docker
+    repo: https://github.com/sahit1011/Full-Stack-MiniAI-As-A-Service
+    branch: master
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: oregon
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: DEBUG
+        value: "False"
+      - key: API_HOST
+        value: "0.0.0.0"
+      - key: SESSION_TIMEOUT
+        value: "86400"
+      - key: MAX_FILE_SIZE
+        value: "52428800"
+      - key: ALGORITHM
+        value: "HS256"
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "30"
+      - key: OPENROUTER_MODEL
+        value: "deepseek/deepseek-chat"
+      - key: SUPABASE_BUCKET
+        value: "klaro"
+      - key: SECRET_KEY
+        generateValue: true       # Render generates a strong random JWT secret
+      - key: DATABASE_URL
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false

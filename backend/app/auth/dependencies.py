@@ -6,7 +6,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from ..database.database import get_db
-from ..database.models import User
+from ..database.models import User, ModelMetadata, FileMetadata
 from .security import verify_token
 
 # HTTP Bearer token scheme
@@ -99,6 +99,42 @@ def get_current_admin_user(current_user: User = Depends(get_current_user)) -> Us
             detail="Not enough permissions"
         )
     return current_user
+
+
+def verify_model_access(model_id: str, current_user: User, db: Session) -> ModelMetadata:
+    """
+    Resolve a model by id scoped to the current user. Returns its metadata, or
+    raises 404 if it doesn't exist OR isn't owned by this user (prevents IDOR —
+    a 404 [not 403] avoids leaking the existence of other users' models).
+    """
+    model = (
+        db.query(ModelMetadata)
+        .filter(ModelMetadata.model_id == model_id, ModelMetadata.user_id == current_user.id)
+        .first()
+    )
+    if model is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "MODEL_NOT_FOUND", "message": f"Model {model_id} not found", "model_id": model_id},
+        )
+    return model
+
+
+def verify_session_access(session_id: str, current_user: User, db: Session) -> FileMetadata:
+    """
+    Resolve an upload session by id scoped to the current user, or raise 404.
+    """
+    file_meta = (
+        db.query(FileMetadata)
+        .filter(FileMetadata.session_id == session_id, FileMetadata.user_id == current_user.id)
+        .first()
+    )
+    if file_meta is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "SESSION_NOT_FOUND", "message": f"Session {session_id} not found", "session_id": session_id},
+        )
+    return file_meta
 
 
 def optional_auth(

@@ -9,11 +9,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Progress } from "@/components/ui/progress"
 import { Input } from "@/components/ui/input"
 import {
-  ArrowLeftIcon,
   ArrowRightIcon,
   CpuChipIcon,
   CheckCircleIcon,
-  ExclamationTriangleIcon,
   SparklesIcon,
   ChartBarIcon,
   Cog6ToothIcon
@@ -22,6 +20,9 @@ import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { SummaryModal } from "@/components/SummaryModal"
 import { apiService } from "@/lib/api"
+import PipelineStepper from "@/components/PipelineStepper"
+import PageSkeleton from "@/components/PageSkeleton"
+import ErrorState from "@/components/ErrorState"
 
 interface TrainingState {
   isTraining: boolean
@@ -36,37 +37,32 @@ interface Algorithm {
   label: string
   description: string
   icon: string
-  color: string
 }
 
 const algorithms: Algorithm[] = [
-  { 
-    value: 'random_forest', 
-    label: 'Random Forest', 
+  {
+    value: 'random_forest',
+    label: 'Random Forest',
     description: 'Robust ensemble method with high accuracy',
-    icon: '🌳',
-    color: 'from-green-500 to-emerald-500'
+    icon: '🌳'
   },
-  { 
-    value: 'xgboost', 
-    label: 'XGBoost', 
+  {
+    value: 'xgboost',
+    label: 'XGBoost',
     description: 'Gradient boosting for superior performance',
-    icon: '🚀',
-    color: 'from-blue-500 to-cyan-500'
+    icon: '🚀'
   },
-  { 
-    value: 'logistic_regression', 
-    label: 'Logistic Regression', 
+  {
+    value: 'logistic_regression',
+    label: 'Logistic Regression',
     description: 'Fast linear classification method',
-    icon: '📈',
-    color: 'from-purple-500 to-pink-500'
+    icon: '📈'
   },
-  { 
-    value: 'svm', 
-    label: 'Support Vector Machine', 
+  {
+    value: 'svm',
+    label: 'Support Vector Machine',
     description: 'Powerful kernel-based classifier',
-    icon: '🎯',
-    color: 'from-orange-500 to-red-500'
+    icon: '🎯'
   }
 ]
 
@@ -107,7 +103,7 @@ export default function TrainPage({ params }: { params: Promise<{ session: strin
     try {
       setLoading(true)
       setError(null)
-      
+
       // Load profile data from backend API
       const data = await apiService.getDataProfile(sessionId)
 
@@ -184,31 +180,50 @@ export default function TrainPage({ params }: { params: Promise<{ session: strin
       setTrainingState(prev => ({
         ...prev,
         progress: 30,
-        currentStep: 'Training model...'
+        currentStep: 'Queuing training job...'
       }))
 
-      // Call backend training API
-      const result = await apiService.trainModel(trainingRequest)
+      // Kick off the async training job (returns 202 { model_id, status: "queued" })
+      const { model_id } = await apiService.trainModel(trainingRequest)
 
       setTrainingState(prev => ({
         ...prev,
-        progress: 90,
-        currentStep: 'Finalizing results...'
+        progress: 55,
+        modelId: model_id,
+        currentStep: 'Training model...'
       }))
 
-      // Small delay for UX
-      await new Promise(resolve => setTimeout(resolve, 1000))
+      // Poll the job to completion (status reflects real server-side progress)
+      const final = await apiService.waitForTraining(model_id, {
+        onTick: (status) =>
+          setTrainingState(prev => ({
+            ...prev,
+            progress: status === 'completed' ? 95 : prev.progress < 88 ? prev.progress + 6 : prev.progress,
+            currentStep: status === 'training' ? 'Training model…' : 'Finalizing results…',
+          })),
+      })
 
-      console.log('Training result received:', result)
-      console.log('Evaluation metrics:', result.evaluation_metrics)
-      console.log('Training info:', result.training_info)
+      if (final.status === 'failed') {
+        throw new Error(final.error_message || 'Training failed. Please try again.')
+      }
+
+      // Assemble a result object matching what the results UI expects
+      const result = {
+        model_id,
+        session_id: resolvedParams.session,
+        model_type: final.problem_type,
+        algorithm: final.algorithm,
+        training_info: final.training_info || {},
+        evaluation_metrics: final.evaluation_metrics || {},
+        feature_importance: final.feature_importance || {},
+      }
 
       setTrainingState({
         isTraining: false,
         progress: 100,
         currentStep: 'Training completed!',
-        modelId: result.model_id,
-        results: result  // Store the full result object, not just evaluation_metrics
+        modelId: model_id,
+        results: result
       })
 
       toast.success('Model trained successfully!')
@@ -217,7 +232,7 @@ export default function TrainPage({ params }: { params: Promise<{ session: strin
 
     } catch (err: any) {
       console.error('Training error:', err)
-      const errorMessage = err.response?.data?.detail?.message || 'Training failed. Please try again.'
+      const errorMessage = err.response?.data?.detail?.message || err.message || 'Training failed. Please try again.'
       setError(errorMessage)
       setTrainingState({
         isTraining: false,
@@ -230,33 +245,24 @@ export default function TrainPage({ params }: { params: Promise<{ session: strin
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <motion.div
-            animate={{ rotate: 360 }}
-            transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-            className="w-16 h-16 mx-auto mb-4 bg-gradient-to-r from-purple-500 to-pink-500 rounded-2xl flex items-center justify-center"
-          >
-            <SparklesIcon className="w-8 h-8 text-white" />
-          </motion.div>
-          <h2 className="text-2xl font-bold text-white mb-2">Loading Training Interface</h2>
-          <p className="text-purple-200">Preparing your data...</p>
-        </div>
+      <div className="min-h-screen pt-20">
+        <PageSkeleton />
       </div>
     )
   }
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center max-w-md">
-          <ExclamationTriangleIcon className="w-16 h-16 text-red-400 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-white mb-4">Training Setup Failed</h2>
-          <p className="text-red-300 mb-6">{error}</p>
-          <Button asChild>
-            <Link href={`/profile/${resolvedParams.session}`}>Back to Profile</Link>
-          </Button>
-        </div>
+      <div className="min-h-screen pt-20">
+        <ErrorState
+          title="Training Setup Failed"
+          message={error}
+          onRetry={() => loadProfileData(resolvedParams.session)}
+          actions={[
+            { label: "Back to Profile", href: `/profile/${resolvedParams.session}`, variant: "outline" },
+            { label: "Upload a Dataset", href: "/upload", variant: "outline" },
+          ]}
+        />
       </div>
     )
   }
@@ -269,8 +275,16 @@ export default function TrainPage({ params }: { params: Promise<{ session: strin
       unique_values: profile.unique_values
     })) : []
 
+  const trainingTime = trainingState.results?.training_info?.training_time
+
   return (
     <div className="min-h-screen pt-20">
+      <PipelineStepper
+        current="train"
+        sessionId={resolvedParams.session}
+        modelId={trainingState.modelId}
+      />
+
       {/* Main Content */}
       <main className="relative z-10 px-6 py-12">
         <div className="max-w-4xl mx-auto">
@@ -279,30 +293,30 @@ export default function TrainPage({ params }: { params: Promise<{ session: strin
               /* Training Configuration */
               <motion.div
                 key="config"
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                transition={{ duration: 0.5 }}
+                exit={{ opacity: 0, y: -12 }}
+                transition={{ duration: 0.4 }}
               >
                 {/* Header */}
                 <div className="text-center mb-12">
-                  <h1 className="text-4xl md:text-5xl font-bold text-white mb-4">
+                  <h1 className="text-4xl md:text-5xl font-bold text-foreground mb-4">
                     Train Your Model
                   </h1>
-                  <p className="text-xl text-purple-200 max-w-2xl mx-auto">
+                  <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
                     Configure and train a machine learning model on your dataset
                   </p>
                 </div>
 
                 <div className="space-y-8">
                   {/* Target Column Selection */}
-                  <Card className="glass">
+                  <Card>
                     <CardHeader>
-                      <CardTitle className="text-white flex items-center">
-                        <ChartBarIcon className="w-5 h-5 mr-2" />
+                      <CardTitle className="text-foreground flex items-center">
+                        <ChartBarIcon className="w-5 h-5 mr-2 text-primary" />
                         Select Target Column
                       </CardTitle>
-                      <CardDescription className="text-purple-200">
+                      <CardDescription className="text-muted-foreground">
                         Choose the column you want to predict
                       </CardDescription>
                     </CardHeader>
@@ -312,10 +326,10 @@ export default function TrainPage({ params }: { params: Promise<{ session: strin
                           <label
                             key={option.value}
                             className={cn(
-                              "flex items-center p-4 rounded-xl border-2 cursor-pointer transition-all duration-300",
+                              "flex items-center p-4 rounded-lg border cursor-pointer transition-colors",
                               selectedTarget === option.value
-                                ? "border-purple-400 bg-purple-500/20"
-                                : "border-white/20 bg-white/5 hover:bg-white/10"
+                                ? "border-primary/40 bg-elevated"
+                                : "border-border bg-card hover:bg-elevated"
                             )}
                           >
                             <input
@@ -327,13 +341,13 @@ export default function TrainPage({ params }: { params: Promise<{ session: strin
                               className="sr-only"
                             />
                             <div className="flex-1">
-                              <div className="text-white font-semibold">{option.label}</div>
-                              <div className="text-purple-200 text-sm">
-                                {option.type} • {option.unique_values} unique values
+                              <div className="text-foreground font-semibold">{option.label}</div>
+                              <div className="text-muted-foreground text-sm">
+                                {option.type} • <span className="font-mono tabular-nums">{option.unique_values}</span> unique values
                               </div>
                             </div>
                             {selectedTarget === option.value && (
-                              <CheckCircleIcon className="w-5 h-5 text-purple-400" />
+                              <CheckCircleIcon className="w-5 h-5 text-primary" />
                             )}
                           </label>
                         ))}
@@ -342,13 +356,13 @@ export default function TrainPage({ params }: { params: Promise<{ session: strin
                   </Card>
 
                   {/* Algorithm Selection */}
-                  <Card className="glass">
+                  <Card>
                     <CardHeader>
-                      <CardTitle className="text-white flex items-center">
-                        <CpuChipIcon className="w-5 h-5 mr-2" />
+                      <CardTitle className="text-foreground flex items-center">
+                        <CpuChipIcon className="w-5 h-5 mr-2 text-primary" />
                         Choose Algorithm
                       </CardTitle>
-                      <CardDescription className="text-purple-200">
+                      <CardDescription className="text-muted-foreground">
                         Select the machine learning algorithm for training
                       </CardDescription>
                     </CardHeader>
@@ -358,10 +372,10 @@ export default function TrainPage({ params }: { params: Promise<{ session: strin
                           <label
                             key={algo.value}
                             className={cn(
-                              "p-4 rounded-xl border-2 cursor-pointer transition-all duration-300 hover-lift",
+                              "p-4 rounded-lg border cursor-pointer transition-colors",
                               selectedAlgorithm === algo.value
-                                ? "border-purple-400 bg-purple-500/20"
-                                : "border-white/20 bg-white/5 hover:bg-white/10"
+                                ? "border-primary/40 bg-elevated"
+                                : "border-border bg-card hover:bg-elevated"
                             )}
                           >
                             <input
@@ -373,15 +387,15 @@ export default function TrainPage({ params }: { params: Promise<{ session: strin
                               className="sr-only"
                             />
                             <div className="flex items-start space-x-3">
-                              <div className={`w-10 h-10 rounded-xl bg-gradient-to-r ${algo.color} flex items-center justify-center text-lg`}>
+                              <div className="w-10 h-10 rounded-lg bg-elevated text-primary flex items-center justify-center text-lg">
                                 {algo.icon}
                               </div>
                               <div className="flex-1">
-                                <div className="text-white font-semibold mb-1">{algo.label}</div>
-                                <div className="text-purple-200 text-sm">{algo.description}</div>
+                                <div className="text-foreground font-semibold mb-1">{algo.label}</div>
+                                <div className="text-muted-foreground text-sm">{algo.description}</div>
                               </div>
                               {selectedAlgorithm === algo.value && (
-                                <CheckCircleIcon className="w-5 h-5 text-purple-400" />
+                                <CheckCircleIcon className="w-5 h-5 text-primary" />
                               )}
                             </div>
                           </label>
@@ -391,21 +405,21 @@ export default function TrainPage({ params }: { params: Promise<{ session: strin
                   </Card>
 
                   {/* Training Parameters */}
-                  <Card className="glass">
+                  <Card>
                     <CardHeader>
-                      <CardTitle className="text-white flex items-center">
-                        <Cog6ToothIcon className="w-5 h-5 mr-2" />
+                      <CardTitle className="text-foreground flex items-center">
+                        <Cog6ToothIcon className="w-5 h-5 mr-2 text-primary" />
                         Training Parameters
                       </CardTitle>
-                      <CardDescription className="text-purple-200">
+                      <CardDescription className="text-muted-foreground">
                         Fine-tune your model training settings
                       </CardDescription>
                     </CardHeader>
                     <CardContent>
                       <div className="grid md:grid-cols-2 gap-6">
                         <div>
-                          <label className="block text-white font-medium mb-2">
-                            Test Size: {Math.round(testSize * 100)}%
+                          <label className="block text-foreground font-medium mb-2">
+                            Test Size: <span className="font-mono tabular-nums">{Math.round(testSize * 100)}%</span>
                           </label>
                           <input
                             type="range"
@@ -414,24 +428,24 @@ export default function TrainPage({ params }: { params: Promise<{ session: strin
                             step="0.05"
                             value={testSize}
                             onChange={(e) => setTestSize(parseFloat(e.target.value))}
-                            className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer slider"
+                            className="w-full h-2 bg-elevated rounded-lg appearance-none cursor-pointer slider"
                           />
-                          <div className="flex justify-between text-sm text-purple-200 mt-1">
+                          <div className="flex justify-between text-sm text-muted-foreground mt-1">
                             <span>10%</span>
                             <span>40%</span>
                           </div>
                         </div>
                         <div>
-                          <label className="block text-white font-medium mb-2">
+                          <label className="block text-foreground font-medium mb-2">
                             Random State
                           </label>
                           <Input
                             type="number"
                             value={randomState}
                             onChange={(e) => setRandomState(parseInt(e.target.value))}
-                            className="bg-white/10 border-white/20 text-white"
+                            className="font-mono tabular-nums"
                           />
-                          <p className="text-purple-200 text-xs mt-1">For reproducible results</p>
+                          <p className="text-muted-foreground text-xs mt-1">For reproducible results</p>
                         </div>
                       </div>
                     </CardContent>
@@ -443,12 +457,16 @@ export default function TrainPage({ params }: { params: Promise<{ session: strin
                       onClick={startTraining}
                       disabled={!selectedTarget}
                       size="xl"
-                      className="group"
                     >
                       <CpuChipIcon className="w-5 h-5 mr-2" />
                       Start Training
-                      <ArrowRightIcon className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
+                      <ArrowRightIcon className="w-5 h-5 ml-2" />
                     </Button>
+                    {!selectedTarget && (
+                      <p className="text-muted-foreground text-sm mt-3">
+                        Select a target column above to enable training.
+                      </p>
+                    )}
                   </div>
                 </div>
               </motion.div>
@@ -456,48 +474,48 @@ export default function TrainPage({ params }: { params: Promise<{ session: strin
               /* Training Progress */
               <motion.div
                 key="training"
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -12 }}
+                transition={{ duration: 0.4 }}
                 className="text-center"
               >
-                <div className="w-24 h-24 mx-auto mb-8 bg-gradient-to-r from-purple-500 to-pink-500 rounded-2xl flex items-center justify-center">
+                <div className="w-24 h-24 mx-auto mb-8 bg-elevated text-primary rounded-lg flex items-center justify-center">
                   <motion.div
                     animate={{ rotate: 360 }}
                     transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
                   >
-                    <CpuChipIcon className="w-12 h-12 text-white" />
+                    <CpuChipIcon className="w-12 h-12" />
                   </motion.div>
                 </div>
 
-                <h1 className="text-4xl font-bold text-white mb-4">Training in Progress</h1>
-                <p className="text-xl text-purple-200 mb-8">{trainingState.currentStep}</p>
+                <h1 className="text-4xl font-bold text-foreground mb-4">Training in Progress</h1>
+                <p className="text-xl text-muted-foreground mb-8">{trainingState.currentStep}</p>
 
                 {/* Progress Bar */}
                 <div className="max-w-md mx-auto mb-8">
-                  <Progress 
-                    value={trainingState.progress} 
-                    variant="gradient" 
+                  <Progress
+                    value={trainingState.progress}
                     className="h-4 mb-2"
                   />
-                  <p className="text-purple-300 text-sm">{trainingState.progress}% complete</p>
+                  <p className="text-muted-foreground text-sm font-mono tabular-nums">{trainingState.progress}% complete</p>
                 </div>
 
                 {/* Training Info */}
-                <Card className="max-w-md mx-auto glass">
+                <Card className="max-w-md mx-auto">
                   <CardContent className="p-6">
                     <div className="space-y-2 text-sm">
                       <div className="flex justify-between">
-                        <span className="text-purple-200">Algorithm:</span>
-                        <span className="text-white">{algorithms.find(a => a.value === selectedAlgorithm)?.label}</span>
+                        <span className="text-muted-foreground">Algorithm:</span>
+                        <span className="text-foreground">{algorithms.find(a => a.value === selectedAlgorithm)?.label}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-purple-200">Target:</span>
-                        <span className="text-white">{selectedTarget}</span>
+                        <span className="text-muted-foreground">Target:</span>
+                        <span className="text-foreground">{selectedTarget}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-purple-200">Test Size:</span>
-                        <span className="text-white">{Math.round(testSize * 100)}%</span>
+                        <span className="text-muted-foreground">Test Size:</span>
+                        <span className="text-foreground font-mono tabular-nums">{Math.round(testSize * 100)}%</span>
                       </div>
                     </div>
                   </CardContent>
@@ -507,90 +525,91 @@ export default function TrainPage({ params }: { params: Promise<{ session: strin
               /* Training Results */
               <motion.div
                 key="results"
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4 }}
                 className="text-center"
               >
-                <div className="w-24 h-24 mx-auto mb-8 bg-gradient-to-r from-green-500 to-emerald-500 rounded-2xl flex items-center justify-center">
-                  <CheckCircleIcon className="w-12 h-12 text-white" />
+                <div className="w-24 h-24 mx-auto mb-8 bg-success/15 text-success rounded-lg flex items-center justify-center">
+                  <CheckCircleIcon className="w-12 h-12" />
                 </div>
 
-                <h1 className="text-4xl font-bold text-white mb-4">Training Complete! 🎉</h1>
-                <p className="text-xl text-purple-200 mb-8">Your model has been successfully trained and is ready for predictions</p>
+                <h1 className="text-4xl font-bold text-foreground mb-4">Training Complete</h1>
+                <p className="text-xl text-muted-foreground mb-8">Your model has been successfully trained and is ready for predictions</p>
 
                 {/* Results Summary */}
                 {trainingState.results && (
                   <div className="space-y-6 mb-8">
                     {/* Main Metrics Card */}
-                    <Card className="max-w-4xl mx-auto glass">
+                    <Card className="max-w-4xl mx-auto">
                       <CardHeader>
-                        <CardTitle className="text-white flex items-center">
-                          <ChartBarIcon className="w-5 h-5 mr-2" />
+                        <CardTitle className="text-foreground flex items-center">
+                          <ChartBarIcon className="w-5 h-5 mr-2 text-primary" />
                           Training Results & Performance
                         </CardTitle>
-                        <CardDescription className="text-purple-200">
+                        <CardDescription className="text-muted-foreground">
                           Comprehensive evaluation metrics for your trained model
                         </CardDescription>
                       </CardHeader>
                       <CardContent>
-                        <div className="grid md:grid-cols-3 gap-6">
+                        <div className="grid md:grid-cols-3 gap-6 text-left">
                           {/* Model Info */}
                           <div className="space-y-4">
-                            <h4 className="text-white font-semibold mb-3">Model Information</h4>
+                            <h4 className="text-foreground font-semibold mb-3">Model Information</h4>
                             <div className="space-y-2">
                               <div className="flex justify-between">
-                                <span className="text-purple-200">Model ID:</span>
-                                <span className="text-white font-mono text-xs">{trainingState.modelId?.slice(-8)}</span>
+                                <span className="text-muted-foreground">Model ID:</span>
+                                <span className="text-foreground font-mono tabular-nums text-xs">{trainingState.modelId?.slice(-8)}</span>
                               </div>
                               <div className="flex justify-between">
-                                <span className="text-purple-200">Algorithm:</span>
-                                <span className="text-white">{algorithms.find(a => a.value === selectedAlgorithm)?.label}</span>
+                                <span className="text-muted-foreground">Algorithm:</span>
+                                <span className="text-foreground">{algorithms.find(a => a.value === selectedAlgorithm)?.label}</span>
                               </div>
                               <div className="flex justify-between">
-                                <span className="text-purple-200">Target:</span>
-                                <span className="text-white">{selectedTarget}</span>
+                                <span className="text-muted-foreground">Target:</span>
+                                <span className="text-foreground">{selectedTarget}</span>
                               </div>
                               <div className="flex justify-between">
-                                <span className="text-purple-200">Test Size:</span>
-                                <span className="text-white">{Math.round(testSize * 100)}%</span>
+                                <span className="text-muted-foreground">Test Size:</span>
+                                <span className="text-foreground font-mono tabular-nums">{Math.round(testSize * 100)}%</span>
                               </div>
                             </div>
                           </div>
 
                           {/* Performance Metrics */}
                           <div className="space-y-4">
-                            <h4 className="text-white font-semibold mb-3">Performance Metrics</h4>
+                            <h4 className="text-foreground font-semibold mb-3">Performance Metrics</h4>
                             <div className="space-y-2">
                               {/* Classification Metrics */}
                               {trainingState.results.model_type === 'classification' ? (
                                 <>
                                   <div className="flex justify-between">
-                                    <span className="text-purple-200">Accuracy:</span>
-                                    <span className="text-green-400 font-bold">
+                                    <span className="text-muted-foreground">Accuracy:</span>
+                                    <span className="text-success font-bold font-mono tabular-nums">
                                       {trainingState.results.evaluation_metrics?.accuracy
                                         ? (trainingState.results.evaluation_metrics.accuracy * 100).toFixed(1) + '%'
                                         : 'N/A'}
                                     </span>
                                   </div>
                                   <div className="flex justify-between">
-                                    <span className="text-purple-200">Precision:</span>
-                                    <span className="text-blue-400 font-semibold">
+                                    <span className="text-muted-foreground">Precision:</span>
+                                    <span className="text-foreground font-semibold font-mono tabular-nums">
                                       {trainingState.results.evaluation_metrics?.precision
                                         ? (trainingState.results.evaluation_metrics.precision * 100).toFixed(1) + '%'
                                         : 'N/A'}
                                     </span>
                                   </div>
                                   <div className="flex justify-between">
-                                    <span className="text-purple-200">Recall:</span>
-                                    <span className="text-cyan-400 font-semibold">
+                                    <span className="text-muted-foreground">Recall:</span>
+                                    <span className="text-foreground font-semibold font-mono tabular-nums">
                                       {trainingState.results.evaluation_metrics?.recall
                                         ? (trainingState.results.evaluation_metrics.recall * 100).toFixed(1) + '%'
                                         : 'N/A'}
                                     </span>
                                   </div>
                                   <div className="flex justify-between">
-                                    <span className="text-purple-200">F1-Score:</span>
-                                    <span className="text-purple-400 font-semibold">
+                                    <span className="text-muted-foreground">F1-Score:</span>
+                                    <span className="text-foreground font-semibold font-mono tabular-nums">
                                       {trainingState.results.evaluation_metrics?.f1_score
                                         ? (trainingState.results.evaluation_metrics.f1_score * 100).toFixed(1) + '%'
                                         : 'N/A'}
@@ -601,24 +620,24 @@ export default function TrainPage({ params }: { params: Promise<{ session: strin
                                 /* Regression Metrics */
                                 <>
                                   <div className="flex justify-between">
-                                    <span className="text-purple-200">R² Score:</span>
-                                    <span className="text-green-400 font-bold">
+                                    <span className="text-muted-foreground">R² Score:</span>
+                                    <span className="text-success font-bold font-mono tabular-nums">
                                       {trainingState.results.evaluation_metrics?.r2_score
                                         ? trainingState.results.evaluation_metrics.r2_score.toFixed(3)
                                         : 'N/A'}
                                     </span>
                                   </div>
                                   <div className="flex justify-between">
-                                    <span className="text-purple-200">RMSE:</span>
-                                    <span className="text-blue-400 font-semibold">
+                                    <span className="text-muted-foreground">RMSE:</span>
+                                    <span className="text-foreground font-semibold font-mono tabular-nums">
                                       {trainingState.results.evaluation_metrics?.rmse
                                         ? trainingState.results.evaluation_metrics.rmse.toFixed(3)
                                         : 'N/A'}
                                     </span>
                                   </div>
                                   <div className="flex justify-between">
-                                    <span className="text-purple-200">MAE:</span>
-                                    <span className="text-cyan-400 font-semibold">
+                                    <span className="text-muted-foreground">MAE:</span>
+                                    <span className="text-foreground font-semibold font-mono tabular-nums">
                                       {trainingState.results.evaluation_metrics?.mae
                                         ? trainingState.results.evaluation_metrics.mae.toFixed(3)
                                         : 'N/A'}
@@ -631,27 +650,29 @@ export default function TrainPage({ params }: { params: Promise<{ session: strin
 
                           {/* Training Details */}
                           <div className="space-y-4">
-                            <h4 className="text-white font-semibold mb-3">Training Details</h4>
+                            <h4 className="text-foreground font-semibold mb-3">Training Details</h4>
                             <div className="space-y-2">
+                              {trainingTime != null && (
+                                <div className="flex justify-between">
+                                  <span className="text-muted-foreground">Training Time:</span>
+                                  <span className="text-foreground font-mono tabular-nums">{trainingTime}</span>
+                                </div>
+                              )}
                               <div className="flex justify-between">
-                                <span className="text-purple-200">Training Time:</span>
-                                <span className="text-white">{'< 1s'}</span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span className="text-purple-200">Training Samples:</span>
-                                <span className="text-white">
+                                <span className="text-muted-foreground">Training Samples:</span>
+                                <span className="text-foreground font-mono tabular-nums">
                                   {trainingState.results.training_info?.training_samples || 'N/A'}
                                 </span>
                               </div>
                               <div className="flex justify-between">
-                                <span className="text-purple-200">Test Samples:</span>
-                                <span className="text-white">
+                                <span className="text-muted-foreground">Test Samples:</span>
+                                <span className="text-foreground font-mono tabular-nums">
                                   {trainingState.results.training_info?.test_samples || 'N/A'}
                                 </span>
                               </div>
                               <div className="flex justify-between">
-                                <span className="text-purple-200">Features Used:</span>
-                                <span className="text-white">
+                                <span className="text-muted-foreground">Features Used:</span>
+                                <span className="text-foreground font-mono tabular-nums">
                                   {trainingState.results.training_info?.features_count || 'N/A'}
                                 </span>
                               </div>
@@ -662,13 +683,13 @@ export default function TrainPage({ params }: { params: Promise<{ session: strin
                     </Card>
 
                     {/* AI Summary Generation */}
-                    <Card className="max-w-4xl mx-auto glass border-purple-400/50">
+                    <Card className="max-w-4xl mx-auto border-primary/40">
                       <CardHeader>
-                        <CardTitle className="text-white flex items-center">
-                          <SparklesIcon className="w-5 h-5 mr-2" />
+                        <CardTitle className="text-foreground flex items-center">
+                          <SparklesIcon className="w-5 h-5 mr-2 text-primary" />
                           AI Training Summary
                         </CardTitle>
-                        <CardDescription className="text-purple-200">
+                        <CardDescription className="text-muted-foreground">
                           Get AI-powered insights about your model's performance and recommendations
                         </CardDescription>
                       </CardHeader>
@@ -698,12 +719,12 @@ export default function TrainPage({ params }: { params: Promise<{ session: strin
                               }
                             }}
                             size="lg"
-                            className="group bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600"
+                            variant="secondary"
                           >
-                            <SparklesIcon className="w-5 h-5 mr-2 group-hover:scale-110 transition-transform" />
+                            <SparklesIcon className="w-5 h-5 mr-2" />
                             Generate Training Summary
                           </Button>
-                          <p className="text-purple-300 text-sm mt-2">
+                          <p className="text-muted-foreground text-sm mt-2">
                             Powered by OpenRouter + DeepSeek
                           </p>
                         </div>
@@ -712,40 +733,40 @@ export default function TrainPage({ params }: { params: Promise<{ session: strin
                   </div>
                 )}
 
-                {/* Action Buttons */}
+                {/* Primary Actions */}
                 <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                  <Button asChild size="xl" className="group">
+                  <Button asChild size="xl">
                     <Link href={`/predict/${trainingState.modelId}`}>
-                      Start Making Predictions
-                      <ArrowRightIcon className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
+                      Make Predictions
+                      <ArrowRightIcon className="w-5 h-5 ml-2" />
                     </Link>
                   </Button>
 
-                  <Button asChild size="xl" variant="outline" className="group border-purple-400 text-purple-300 hover:bg-purple-400 hover:text-white">
+                  <Button asChild size="xl" variant="outline">
                     <Link href={`/summary/${trainingState.modelId}`}>
-                      View Detailed Summary
-                      <ArrowRightIcon className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
+                      View summary
                     </Link>
                   </Button>
+                </div>
 
-                  <Button asChild size="xl" variant="outline" className="group border-green-400 text-green-300 hover:bg-green-400 hover:text-white">
-                    <Link href="/history">
-                      View Training History
-                      <ArrowRightIcon className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
-                    </Link>
-                  </Button>
-
-                  <Button
-                    variant="outline"
-                    size="xl"
+                {/* Quiet secondary links */}
+                <div className="mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm">
+                  <button
+                    type="button"
                     onClick={() => {
                       setTrainingState({ isTraining: false, progress: 0, currentStep: '' })
                       setSelectedTarget('')
                     }}
-                    className="border-purple-400 text-purple-300 hover:bg-purple-400 hover:text-white"
+                    className="text-muted-foreground transition-colors hover:text-foreground"
                   >
-                    Train Another Model
-                  </Button>
+                    Train another model
+                  </button>
+                  <Link
+                    href="/history"
+                    className="text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    View training history
+                  </Link>
                 </div>
               </motion.div>
             )}

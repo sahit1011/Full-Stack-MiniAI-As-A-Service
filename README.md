@@ -1,4 +1,4 @@
-# 🚀 Othor AI - Mini AI Analyst as a Service
+# 🚀 Klaro - Mini AI Analyst as a Service
 
 A comprehensive full-stack application that transforms CSV data analysis into an intelligent, automated experience. Upload CSV files, get instant statistical insights, train machine learning models, and generate predictions through a professional web interface designed for data scientists and analysts.
 
@@ -363,7 +363,7 @@ DATABASE_URL=sqlite:///./data/othor_ai.db
 ```bash
 NEXT_PUBLIC_API_URL=http://localhost:8001
 NEXT_PUBLIC_MAX_FILE_SIZE=52428800
-NEXT_PUBLIC_APP_NAME="Othor AI"
+NEXT_PUBLIC_APP_NAME="Klaro"
 ```
 
 ## 🎯 Sample Datasets & Demo
@@ -521,4 +521,4 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 ✅ **Intelligent ML Pipeline** - AutoML with smart recommendations
 ✅ **Statistical Analysis** - Professional data science visualizations
 
-**Built with ❤️ and attention to detail for the Othor AI Take-Home Assignment**
+**Built with ❤️ and attention to detail for the Klaro Take-Home Assignment**

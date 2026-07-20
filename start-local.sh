@@ -1,8 +1,8 @@
 #!/bin/bash
-# Othor AI - Local Development Startup Script for Linux/macOS
+# Klaro - Local Development Startup Script for Linux/macOS
 # This script starts both frontend and backend servers locally
 
-echo "🚀 Starting Othor AI - Local Development Mode"
+echo "🚀 Starting Klaro - Local Development Mode"
 echo "==============================================="
 echo ""
 
@@ -119,7 +119,7 @@ echo -e "${CYAN}⏳ Waiting for services to be ready...${NC}"
 sleep 10
 
 echo ""
-echo -e "${GREEN}🎉 Othor AI Local Development is starting up!${NC}"
+echo -e "${GREEN}🎉 Klaro Local Development is starting up!${NC}"
 echo ""
 echo -e "${CYAN}📱 Access the application:${NC}"
 echo -e "${NC}   Frontend:  http://localhost:3000${NC}"

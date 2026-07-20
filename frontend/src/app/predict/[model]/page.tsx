@@ -7,11 +7,13 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { ArrowLeftIcon, SparklesIcon, ExclamationTriangleIcon, DocumentArrowUpIcon, TableCellsIcon } from "@heroicons/react/24/outline"
+import { ArrowLeftIcon, SparklesIcon, DocumentArrowUpIcon, TableCellsIcon } from "@heroicons/react/24/outline"
 import { toast } from "sonner"
 import { apiService } from "@/lib/api"
-import { useAuth } from "@/contexts/AuthContext"
 import ProtectedRoute from "@/components/ProtectedRoute"
+import PipelineStepper from "@/components/PipelineStepper"
+import ErrorState from "@/components/ErrorState"
+import PageSkeleton from "@/components/PageSkeleton"
 
 interface PredictionInput {
   [key: string]: string | number
@@ -19,15 +21,15 @@ interface PredictionInput {
 
 interface PredictionResult {
   prediction: any
-  confidence: number
-  probabilities?: Record<string, number>
+  confidence?: number | null
+  probabilities?: Record<string, number> | null
 }
 
 interface ModelInfo {
   model_id: string
   algorithm: string
   features: string[]
-  accuracy: number
+  accuracy?: number
 }
 
 function PredictPageContent({ params, searchParams }: {
@@ -36,7 +38,9 @@ function PredictPageContent({ params, searchParams }: {
 }) {
   const router = useRouter()
   const resolvedParams = use(params)
-  const resolvedSearchParams = use(searchParams || Promise.resolve({}))
+  const resolvedSearchParams = use(
+    searchParams || Promise.resolve({} as { model_id?: string; session_id?: string })
+  )
   const [modelInfo, setModelInfo] = useState<ModelInfo | null>(null)
   const [inputData, setInputData] = useState<PredictionInput>({})
   const [prediction, setPrediction] = useState<PredictionResult | null>(null)
@@ -92,11 +96,14 @@ function PredictPageContent({ params, searchParams }: {
 
       const features = modelData.features?.all_features || []
 
+      // Use the model's real, persisted score when available — never a fabricated one
+      const realScore = modelData.metrics?.accuracy ?? modelData.metrics?.r2_score
+
       const modelInfo: ModelInfo = {
         model_id: modelId,
         algorithm: modelData.algorithm || 'Unknown',
         features: features,
-        accuracy: 0.95 // This could be extracted from model metadata if available
+        accuracy: typeof realScore === 'number' ? realScore : undefined
       }
 
       setModelInfo(modelInfo)
@@ -123,7 +130,7 @@ function PredictPageContent({ params, searchParams }: {
         setError('Authentication required. Please log in to access model information.')
         toast.error('Please log in to access this model')
         // Redirect to login page
-        router.push('/auth/login')
+        router.push('/login')
         return
       }
 
@@ -157,7 +164,7 @@ function PredictPageContent({ params, searchParams }: {
           model_id: modelId,
           algorithm: 'Unknown',
           features: features,
-          accuracy: 0.95
+          accuracy: undefined
         }
 
         setModelInfo(modelInfo)
@@ -195,9 +202,22 @@ function PredictPageContent({ params, searchParams }: {
     }))
   }
 
+  // Every feature must have a non-empty value before we allow a prediction.
+  const allInputsFilled =
+    !!modelInfo &&
+    modelInfo.features.length > 0 &&
+    modelInfo.features.every(
+      (feature) => String(inputData[feature] ?? '').trim() !== ''
+    )
+
   const makePrediction = async () => {
-    if (!modelInfo || Object.keys(inputData).length === 0) {
+    if (!modelInfo || modelInfo.features.length === 0) {
       toast.error('No input data provided')
+      return
+    }
+
+    if (!allInputsFilled) {
+      toast.error('Please fill in all input fields before generating a prediction')
       return
     }
 
@@ -221,7 +241,7 @@ function PredictPageContent({ params, searchParams }: {
       // Handle authentication errors
       if (err.response?.status === 401) {
         toast.error('Please log in to make predictions')
-        router.push('/auth/login')
+        router.push('/login')
         return
       }
 
@@ -304,80 +324,76 @@ function PredictPageContent({ params, searchParams }: {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900">
-        <div className="text-center">
-          <SparklesIcon className="w-16 h-16 text-purple-400 mx-auto mb-4 animate-spin" />
-          <h2 className="text-2xl font-bold text-white mb-2">Loading Model</h2>
-          <p className="text-purple-200">Preparing prediction interface...</p>
-        </div>
+      <div className="min-h-screen bg-background">
+        <PageSkeleton />
       </div>
     )
   }
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900">
-        <div className="text-center max-w-md">
-          <ExclamationTriangleIcon className="w-16 h-16 text-red-400 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-white mb-4">Model Load Failed</h2>
-          <p className="text-red-300 mb-6">{error}</p>
-          <div className="space-y-3">
-            <Button asChild className="w-full">
-              <Link href="/models">View Available Models</Link>
-            </Button>
-            <Button asChild variant="outline" className="w-full">
-              <Link href="/upload">Upload New Data</Link>
-            </Button>
-            <Button asChild variant="ghost" className="w-full">
-              <Link href="/auth/login">Login</Link>
-            </Button>
-          </div>
-        </div>
+      <div className="min-h-screen bg-background">
+        <ErrorState
+          title="Model Load Failed"
+          message={error}
+          onRetry={() => loadModelInfo(modelId, sessionId)}
+          actions={[
+            { label: "View Available Models", href: "/models" },
+            { label: "Upload New Data", href: "/upload", variant: "outline" },
+            { label: "Login", href: "/login", variant: "ghost" },
+          ]}
+        />
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900">
+    <div className="min-h-screen bg-background">
       <nav className="relative z-10 px-6 py-4">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <Link href="/upload" className="flex items-center space-x-3 group">
-            <ArrowLeftIcon className="w-5 h-5 text-purple-200 group-hover:text-white transition-colors" />
-            <span className="text-purple-200 group-hover:text-white transition-colors">Back to Upload</span>
+            <ArrowLeftIcon className="w-5 h-5 text-muted-foreground group-hover:text-foreground transition-colors" />
+            <span className="text-muted-foreground group-hover:text-foreground transition-colors">Back to Upload</span>
           </Link>
-          <h1 className="text-xl font-bold text-white">AI Prediction Interface</h1>
+          <h1 className="text-xl font-bold text-foreground">AI Prediction Interface</h1>
         </div>
       </nav>
+
+      <PipelineStepper current="predict" modelId={modelId} />
 
       <main className="relative z-10 px-6 py-12">
         <div className="max-w-4xl mx-auto">
           <div className="text-center mb-12">
-            <h1 className="text-4xl md:text-5xl font-bold text-white mb-4">
+            <h1 className="text-4xl md:text-5xl font-bold text-foreground mb-4">
               Make Predictions
             </h1>
-            <p className="text-xl text-purple-200">
+            <p className="text-xl text-muted-foreground">
               Use your trained model to generate predictions
             </p>
           </div>
 
           {modelInfo && (
-            <Card className="mb-8 bg-white/10 border-white/20">
+            <Card className="mb-8 border border-border bg-card">
               <CardHeader>
-                <CardTitle className="text-white">Model Information</CardTitle>
+                <CardTitle className="text-foreground">Model Information</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="grid md:grid-cols-3 gap-4 text-sm">
                   <div>
-                    <span className="text-purple-200">Model ID:</span>
-                    <div className="text-white font-mono text-xs">{modelInfo.model_id}</div>
+                    <span className="text-muted-foreground">Model ID:</span>
+                    <div className="text-foreground font-mono tabular-nums text-xs">{modelInfo.model_id}</div>
                   </div>
                   <div>
-                    <span className="text-purple-200">Algorithm:</span>
-                    <div className="text-white">{modelInfo.algorithm}</div>
+                    <span className="text-muted-foreground">Algorithm:</span>
+                    <div className="text-foreground">{modelInfo.algorithm}</div>
                   </div>
                   <div>
-                    <span className="text-purple-200">Accuracy:</span>
-                    <div className="text-green-400 font-bold">{(modelInfo.accuracy * 100).toFixed(1)}%</div>
+                    <span className="text-muted-foreground">Accuracy:</span>
+                    <div className="text-success font-mono tabular-nums font-bold">
+                      {typeof modelInfo.accuracy === 'number'
+                        ? `${(modelInfo.accuracy * 100).toFixed(1)}%`
+                        : '—'}
+                    </div>
                   </div>
                 </div>
               </CardContent>
@@ -385,16 +401,15 @@ function PredictPageContent({ params, searchParams }: {
           )}
 
           {/* Prediction Tabs */}
-          <Card className="mb-8 bg-white/10 border-white/20">
+          <Card className="mb-8 border border-border bg-card">
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle className="text-white">Prediction Interface</CardTitle>
+                <CardTitle className="text-foreground">Prediction Interface</CardTitle>
                 <div className="flex space-x-2">
                   <Button
                     variant={activeTab === 'single' ? 'default' : 'outline'}
                     size="sm"
                     onClick={() => setActiveTab('single')}
-                    className={activeTab === 'single' ? 'bg-purple-500 text-white' : 'border-purple-400 text-purple-300 hover:bg-purple-400 hover:text-white'}
                   >
                     <TableCellsIcon className="w-4 h-4 mr-2" />
                     Single Prediction
@@ -403,7 +418,6 @@ function PredictPageContent({ params, searchParams }: {
                     variant={activeTab === 'batch' ? 'default' : 'outline'}
                     size="sm"
                     onClick={() => setActiveTab('batch')}
-                    className={activeTab === 'batch' ? 'bg-purple-500 text-white' : 'border-purple-400 text-purple-300 hover:bg-purple-400 hover:text-white'}
                   >
                     <DocumentArrowUpIcon className="w-4 h-4 mr-2" />
                     Batch Prediction
@@ -417,7 +431,7 @@ function PredictPageContent({ params, searchParams }: {
                   <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {modelInfo?.features?.map((feature: string) => (
                       <div key={feature}>
-                        <label className="block text-purple-200 text-sm mb-2 capitalize">
+                        <label className="block text-muted-foreground text-sm mb-2 capitalize">
                           {feature.replace('_', ' ')}
                         </label>
                         <Input
@@ -425,7 +439,6 @@ function PredictPageContent({ params, searchParams }: {
                           value={inputData[feature] || ''}
                           onChange={(e) => updateInputValue(feature, e.target.value)}
                           placeholder={`Enter ${feature}`}
-                          className="bg-white/10 border-white/20 text-white placeholder-purple-300"
                         />
                       </div>
                     ))}
@@ -434,9 +447,8 @@ function PredictPageContent({ params, searchParams }: {
                   <div className="text-center mt-8">
                     <Button
                       onClick={makePrediction}
-                      disabled={predicting}
+                      disabled={predicting || !allInputsFilled}
                       size="lg"
-                      className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600"
                     >
                       {predicting ? (
                         <>
@@ -450,19 +462,24 @@ function PredictPageContent({ params, searchParams }: {
                         </>
                       )}
                     </Button>
+                    {!allInputsFilled && (
+                      <p className="text-muted-foreground text-sm mt-3">
+                        Fill in all input fields to generate a prediction.
+                      </p>
+                    )}
                   </div>
                 </>
               ) : (
                 <>
                   <div className="text-center mb-6">
-                    <h3 className="text-lg font-semibold text-white mb-2">Upload CSV for Batch Predictions</h3>
-                    <p className="text-purple-200 text-sm">
+                    <h3 className="text-lg font-semibold text-foreground mb-2">Upload CSV for Batch Predictions</h3>
+                    <p className="text-muted-foreground text-sm">
                       Upload a CSV file with the same features as your training data
                     </p>
                   </div>
 
-                  <div className="border-2 border-dashed border-purple-400 rounded-lg p-8 text-center">
-                    <DocumentArrowUpIcon className="w-12 h-12 text-purple-400 mx-auto mb-4" />
+                  <div className="border-2 border-dashed border-border rounded-lg p-8 text-center">
+                    <DocumentArrowUpIcon className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
                     <input
                       type="file"
                       accept=".csv"
@@ -472,17 +489,17 @@ function PredictPageContent({ params, searchParams }: {
                     />
                     <label
                       htmlFor="batch-file-input"
-                      className="cursor-pointer text-purple-300 hover:text-white transition-colors"
+                      className="cursor-pointer text-muted-foreground hover:text-foreground transition-colors"
                     >
                       {batchFile ? (
                         <div>
-                          <p className="text-white font-medium">{batchFile.name}</p>
-                          <p className="text-purple-200 text-sm">Click to change file</p>
+                          <p className="text-foreground font-medium">{batchFile.name}</p>
+                          <p className="text-muted-foreground text-sm">Click to change file</p>
                         </div>
                       ) : (
                         <div>
-                          <p className="text-white font-medium">Click to upload CSV file</p>
-                          <p className="text-purple-200 text-sm">or drag and drop</p>
+                          <p className="text-foreground font-medium">Click to upload CSV file</p>
+                          <p className="text-muted-foreground text-sm">or drag and drop</p>
                         </div>
                       )}
                     </label>
@@ -494,7 +511,6 @@ function PredictPageContent({ params, searchParams }: {
                         onClick={makeBatchPrediction}
                         disabled={predicting}
                         size="lg"
-                        className="bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600"
                       >
                         {predicting ? (
                           <>
@@ -517,40 +533,54 @@ function PredictPageContent({ params, searchParams }: {
 
           {/* Results Display */}
           {activeTab === 'single' && prediction && (
-            <Card className="bg-white/10 border-white/20">
+            <Card className="border border-border bg-card">
               <CardHeader>
-                <CardTitle className="text-white">Prediction Result</CardTitle>
+                <CardTitle className="text-foreground">Prediction Result</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="text-center">
-                  <div className="text-3xl font-bold text-white mb-2">
+                  <div className="text-3xl font-bold text-foreground mb-2 font-mono tabular-nums">
                     {prediction.prediction}
                   </div>
-                  <div className="text-purple-200 mb-4">
-                    Confidence: {(prediction.confidence * 100).toFixed(1)}%
-                  </div>
-                  {prediction.probabilities && (
+                  {typeof prediction.confidence === 'number' && (
+                    <div className="text-muted-foreground mb-4">
+                      Confidence:{' '}
+                      <span className="font-mono tabular-nums text-foreground">
+                        {(prediction.confidence * 100).toFixed(1)}%
+                      </span>
+                    </div>
+                  )}
+                  {prediction.probabilities && Object.keys(prediction.probabilities).length > 0 && (
                     <div className="space-y-2">
-                      <h4 className="text-white font-medium">Class Probabilities:</h4>
+                      <h4 className="text-foreground font-medium">Class Probabilities:</h4>
                       {Object.entries(prediction.probabilities).map(([className, prob]) => (
                         <div key={className} className="flex justify-between items-center">
-                          <span className="text-purple-200">{className}</span>
-                          <span className="text-white">{(prob * 100).toFixed(1)}%</span>
+                          <span className="text-muted-foreground">{className}</span>
+                          <span className="text-foreground font-mono tabular-nums">{(prob * 100).toFixed(1)}%</span>
                         </div>
                       ))}
                     </div>
                   )}
+                </div>
+
+                <div className="flex flex-wrap items-center justify-center gap-3 mt-8">
+                  <Button asChild variant="outline">
+                    <Link href={`/summary/${modelId}`}>Back to Model Summary</Link>
+                  </Button>
+                  <Button asChild variant="ghost">
+                    <Link href="/history">View Prediction History</Link>
+                  </Button>
                 </div>
               </CardContent>
             </Card>
           )}
 
           {activeTab === 'batch' && batchResults && (
-            <Card className="bg-white/10 border-white/20">
+            <Card className="border border-border bg-card">
               <CardHeader>
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-white">Batch Prediction Results</CardTitle>
-                  <Badge variant="outline" className="border-green-400 text-green-300">
+                  <CardTitle className="text-foreground">Batch Prediction Results</CardTitle>
+                  <Badge variant="success" className="font-mono tabular-nums">
                     {batchResults.count} predictions
                   </Badge>
                 </div>
@@ -558,7 +588,7 @@ function PredictPageContent({ params, searchParams }: {
               <CardContent>
                 <div className="space-y-4">
                   <div className="text-center mb-6">
-                    <p className="text-purple-200">
+                    <p className="text-muted-foreground">
                       Successfully generated {batchResults.count} predictions
                     </p>
                   </div>
@@ -566,25 +596,27 @@ function PredictPageContent({ params, searchParams }: {
                   <div className="max-h-96 overflow-y-auto">
                     <div className="space-y-2">
                       {batchResults.predictions?.slice(0, 10).map((pred: any, index: number) => (
-                        <div key={index} className="flex items-center justify-between p-3 bg-white/5 rounded-lg">
-                          <span className="text-purple-200">Row {index + 1}:</span>
+                        <div key={index} className="flex items-center justify-between p-3 bg-elevated rounded-lg">
+                          <span className="text-muted-foreground">Row <span className="font-mono tabular-nums">{index + 1}</span>:</span>
                           <div className="text-right">
-                            <div className="text-white font-medium">{pred.prediction}</div>
-                            <div className="text-purple-300 text-sm">
-                              {(pred.confidence * 100).toFixed(1)}% confidence
-                            </div>
+                            <div className="text-foreground font-medium font-mono tabular-nums">{pred.prediction}</div>
+                            {typeof pred.confidence === 'number' && (
+                              <div className="text-muted-foreground text-sm">
+                                <span className="font-mono tabular-nums">{(pred.confidence * 100).toFixed(1)}%</span> confidence
+                              </div>
+                            )}
                           </div>
                         </div>
                       ))}
                       {batchResults.predictions?.length > 10 && (
-                        <div className="text-center text-purple-300 text-sm mt-4">
-                          ... and {batchResults.predictions.length - 10} more predictions
+                        <div className="text-center text-muted-foreground text-sm mt-4">
+                          ... and <span className="font-mono tabular-nums">{batchResults.predictions.length - 10}</span> more predictions
                         </div>
                       )}
                     </div>
                   </div>
 
-                  <div className="text-center mt-6">
+                  <div className="flex flex-wrap items-center justify-center gap-3 mt-6">
                     <Button
                       onClick={() => {
                         const dataStr = JSON.stringify(batchResults, null, 2)
@@ -597,10 +629,12 @@ function PredictPageContent({ params, searchParams }: {
                         URL.revokeObjectURL(url)
                       }}
                       variant="outline"
-                      className="border-purple-400 text-purple-300 hover:bg-purple-400 hover:text-white"
                     >
                       <DocumentArrowUpIcon className="w-4 h-4 mr-2" />
                       Download Results
+                    </Button>
+                    <Button asChild variant="ghost">
+                      <Link href="/history">View Prediction History</Link>
                     </Button>
                   </div>
                 </div>

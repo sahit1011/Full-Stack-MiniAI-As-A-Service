@@ -15,7 +15,6 @@ import {
   PieChart,
   Pie,
   Cell,
-  ScatterPlot,
   Scatter,
   LineChart,
   Line,
@@ -99,19 +98,15 @@ interface EnhancedDataVisualizationProps {
   datasetInfo: DatasetInfo
 }
 
-// Enhanced color palettes for professional visualizations
-const COLORS = {
-  primary: ['#8b5cf6', '#a855f7', '#c084fc', '#d8b4fe', '#e9d5ff'],
-  quality: ['#10b981', '#f59e0b', '#ef4444'],
-  distribution: ['#3b82f6', '#06b6d4', '#8b5cf6', '#ec4899', '#f59e0b'],
-  correlation: ['#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#10b981'],
-  gradient: {
-    excellent: '#10b981',
-    good: '#22c55e', 
-    fair: '#f59e0b',
-    poor: '#ef4444'
-  }
-}
+// Tokenized chart palette (chart-1=cyan, 2=green, 3=amber, 4=violet, 5=magenta, 6=blue)
+const CHART = [
+  'hsl(var(--chart-1))',
+  'hsl(var(--chart-2))',
+  'hsl(var(--chart-3))',
+  'hsl(var(--chart-4))',
+  'hsl(var(--chart-5))',
+  'hsl(var(--chart-6))'
+]
 
 // Statistical analysis functions
 const calculateStatistics = (values: number[]) => {
@@ -153,17 +148,17 @@ const calculateStatistics = (values: number[]) => {
 }
 
 const getQualityColor = (score: number) => {
-  if (score >= 90) return 'text-green-400'
-  if (score >= 70) return 'text-yellow-400'
-  if (score >= 50) return 'text-orange-400'
-  return 'text-red-400'
+  if (score >= 90) return 'text-success'
+  if (score >= 70) return 'text-warning'
+  if (score >= 50) return 'text-warning'
+  return 'text-destructive'
 }
 
 const getQualityBadge = (score: number) => {
-  if (score >= 90) return { label: 'Excellent', color: 'bg-green-500' }
-  if (score >= 70) return { label: 'Good', color: 'bg-yellow-500' }
-  if (score >= 50) return { label: 'Fair', color: 'bg-orange-500' }
-  return { label: 'Poor', color: 'bg-red-500' }
+  if (score >= 90) return { label: 'Excellent', color: 'bg-success text-success-foreground' }
+  if (score >= 70) return { label: 'Good', color: 'bg-warning text-warning-foreground' }
+  if (score >= 50) return { label: 'Fair', color: 'bg-warning text-warning-foreground' }
+  return { label: 'Poor', color: 'bg-destructive text-destructive-foreground' }
 }
 
 const formatNumber = (num: number) => {
@@ -229,13 +224,13 @@ export function EnhancedDataVisualization({ columnProfiles, correlations, datase
   }))
 
   const qualityData = [
-    { metric: 'Completeness', value: qualityMetrics.completeness, color: COLORS.quality[0] },
-    { metric: 'Uniqueness', value: qualityMetrics.uniqueness, color: COLORS.quality[1] },
-    { metric: 'Consistency', value: qualityMetrics.consistency, color: COLORS.quality[2] },
-    { metric: 'Validity', value: qualityMetrics.validity, color: COLORS.quality[0] }
+    { metric: 'Completeness', value: qualityMetrics.completeness, color: CHART[0] },
+    { metric: 'Uniqueness', value: qualityMetrics.uniqueness, color: CHART[1] },
+    { metric: 'Consistency', value: qualityMetrics.consistency, color: CHART[2] },
+    { metric: 'Validity', value: qualityMetrics.validity, color: CHART[3] }
   ]
 
-  // Strong correlations (|r| > 0.5)
+  // Strong correlations (|r| &gt; 0.5)
   const strongCorrelations = correlations
     .filter(corr => Math.abs(corr.correlation) > 0.5)
     .sort((a, b) => Math.abs(b.correlation) - Math.abs(a.correlation))
@@ -249,16 +244,18 @@ export function EnhancedDataVisualization({ columnProfiles, correlations, datase
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
       >
-        <Card className="glass border-purple-500/30">
+        <Card className="border border-border bg-card">
           <CardHeader>
-            <CardTitle className="text-white flex items-center">
-              <SparklesIcon className="w-6 h-6 mr-3 text-purple-400" />
+            <CardTitle className="text-foreground flex items-center">
+              <span className="mr-3 inline-flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-500/25 to-blue-500/25 text-cyan-300">
+                <SparklesIcon className="w-5 h-5" />
+              </span>
               Data Quality Assessment
               <Badge className={`ml-3 ${getQualityBadge(overallQualityScore).color}`}>
                 {getQualityBadge(overallQualityScore).label}
               </Badge>
             </CardTitle>
-            <CardDescription className="text-purple-200">
+            <CardDescription className="text-muted-foreground">
               Comprehensive analysis of your dataset's quality and characteristics
             </CardDescription>
           </CardHeader>
@@ -273,24 +270,24 @@ export function EnhancedDataVisualization({ columnProfiles, correlations, datase
                   className="text-center"
                 >
                   <div className="mb-2">
-                    <div className={`text-2xl font-bold ${getQualityColor(metric.value)}`}>
+                    <div className={`text-2xl font-bold font-mono tabular-nums ${getQualityColor(metric.value)}`}>
                       {metric.value.toFixed(1)}%
                     </div>
-                    <div className="text-sm text-purple-300">{metric.metric}</div>
+                    <div className="text-sm text-muted-foreground">{metric.metric}</div>
                   </div>
-                  <Progress 
-                    value={metric.value} 
-                    className="h-2 bg-white/10"
+                  <Progress
+                    value={metric.value}
+                    className="h-2 bg-elevated"
                   />
                 </motion.div>
               ))}
             </div>
-            
+
             <div className="text-center">
-              <div className={`text-4xl font-bold mb-2 ${getQualityColor(overallQualityScore)}`}>
+              <div className={`text-4xl font-bold font-mono tabular-nums mb-2 ${getQualityColor(overallQualityScore)}`}>
                 {overallQualityScore}%
               </div>
-              <div className="text-purple-200">Overall Data Quality Score</div>
+              <div className="text-muted-foreground">Overall Data Quality Score</div>
             </div>
           </CardContent>
         </Card>
@@ -304,13 +301,15 @@ export function EnhancedDataVisualization({ columnProfiles, correlations, datase
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
         >
-          <Card className="glass h-full">
+          <Card className="border border-border bg-card h-full">
             <CardHeader>
-              <CardTitle className="text-white flex items-center">
-                <ChartPieIcon className="w-5 h-5 mr-2" />
+              <CardTitle className="text-foreground flex items-center">
+                <span className="mr-2 inline-flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500/25 to-fuchsia-500/25 text-violet-300">
+                  <ChartPieIcon className="w-4 h-4" />
+                </span>
                 Feature Type Analysis
               </CardTitle>
-              <CardDescription className="text-purple-200">
+              <CardDescription className="text-muted-foreground">
                 Distribution and characteristics of data types
               </CardDescription>
             </CardHeader>
@@ -328,16 +327,18 @@ export function EnhancedDataVisualization({ columnProfiles, correlations, datase
                       dataKey="count"
                     >
                       {typeChartData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS.primary[index % COLORS.primary.length]} />
+                        <Cell key={`cell-${index}`} fill={CHART[index % CHART.length]} />
                       ))}
                     </Pie>
                     <Tooltip
                       contentStyle={{
-                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
-                        border: '1px solid #8b5cf6',
+                        background: 'hsl(var(--card))',
+                        border: '1px solid hsl(var(--border))',
                         borderRadius: '8px',
-                        color: 'white'
+                        color: 'hsl(var(--foreground))'
                       }}
+                      itemStyle={{ color: 'hsl(var(--foreground))' }}
+                      labelStyle={{ color: 'hsl(var(--muted-foreground))' }}
                       formatter={(value: number, name: string) => [
                         `${value} columns (${typeChartData.find(d => d.count === value)?.percentage}%)`,
                         name
@@ -349,17 +350,17 @@ export function EnhancedDataVisualization({ columnProfiles, correlations, datase
 
               <div className="space-y-2">
                 {typeChartData.map((item, index) => (
-                  <div key={item.type} className="flex items-center justify-between p-2 bg-white/5 rounded-lg">
+                  <div key={item.type} className="flex items-center justify-between p-2 border border-border bg-card rounded-lg">
                     <div className="flex items-center">
                       <div
                         className="w-3 h-3 rounded-full mr-3"
-                        style={{ backgroundColor: COLORS.primary[index % COLORS.primary.length] }}
+                        style={{ backgroundColor: CHART[index % CHART.length] }}
                       />
-                      <span className="text-white font-medium">{item.type}</span>
+                      <span className="text-foreground font-medium">{item.type}</span>
                     </div>
                     <div className="text-right">
-                      <div className="text-purple-300">{item.count} columns</div>
-                      <div className="text-xs text-purple-400">{item.percentage}%</div>
+                      <div className="text-muted-foreground font-mono tabular-nums">{item.count} columns</div>
+                      <div className="text-xs text-muted-foreground font-mono tabular-nums">{item.percentage}%</div>
                     </div>
                   </div>
                 ))}
@@ -374,13 +375,15 @@ export function EnhancedDataVisualization({ columnProfiles, correlations, datase
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
         >
-          <Card className="glass h-full">
+          <Card className="border border-border bg-card h-full">
             <CardHeader>
-              <CardTitle className="text-white flex items-center">
-                <BeakerIcon className="w-5 h-5 mr-2" />
+              <CardTitle className="text-foreground flex items-center">
+                <span className="mr-2 inline-flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500/25 to-cyan-500/25 text-emerald-300">
+                  <BeakerIcon className="w-4 h-4" />
+                </span>
                 Statistical Properties
               </CardTitle>
-              <CardDescription className="text-purple-200">
+              <CardDescription className="text-muted-foreground">
                 Distribution characteristics of numerical features
               </CardDescription>
             </CardHeader>
@@ -389,36 +392,41 @@ export function EnhancedDataVisualization({ columnProfiles, correlations, datase
                 <div className="h-64">
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={numericalColumns.slice(0, 8)} margin={{ top: 10, right: 10, left: 10, bottom: 40 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
                       <XAxis
                         dataKey="column"
-                        stroke="#9ca3af"
-                        fontSize={10}
+                        stroke="hsl(var(--muted-foreground))"
+                        tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }}
                         angle={-45}
                         textAnchor="end"
                         height={60}
                       />
-                      <YAxis stroke="#9ca3af" fontSize={10} />
+                      <YAxis
+                        stroke="hsl(var(--muted-foreground))"
+                        tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }}
+                      />
                       <Tooltip
                         contentStyle={{
-                          backgroundColor: 'rgba(0, 0, 0, 0.9)',
-                          border: '1px solid #8b5cf6',
+                          background: 'hsl(var(--card))',
+                          border: '1px solid hsl(var(--border))',
                           borderRadius: '8px',
-                          color: 'white'
+                          color: 'hsl(var(--foreground))'
                         }}
+                        itemStyle={{ color: 'hsl(var(--foreground))' }}
+                        labelStyle={{ color: 'hsl(var(--muted-foreground))' }}
                         formatter={(value: number, name: string) => [
                           name === 'skewness' ? value.toFixed(3) : value.toFixed(2),
                           name === 'skewness' ? 'Skewness' : name === 'outliers' ? 'Outliers' : 'Standard Deviation'
                         ]}
                       />
-                      <Bar dataKey="std" fill="#8b5cf6" name="std" radius={[2, 2, 0, 0]} />
-                      <Line type="monotone" dataKey="skewness" stroke="#f59e0b" strokeWidth={3} dot={{ fill: '#f59e0b', r: 4 }} />
-                      <Bar dataKey="outliers" fill="#ef4444" name="outliers" radius={[2, 2, 0, 0]} />
+                      <Bar dataKey="std" fill={CHART[0]} name="std" radius={[4, 4, 0, 0]} />
+                      <Line type="monotone" dataKey="skewness" stroke={CHART[2]} strokeWidth={2} dot={{ fill: CHART[2], r: 4 }} />
+                      <Bar dataKey="outliers" fill={CHART[4]} name="outliers" radius={[4, 4, 0, 0]} />
                     </ComposedChart>
                   </ResponsiveContainer>
                 </div>
               ) : (
-                <div className="h-64 flex items-center justify-center text-purple-300">
+                <div className="h-64 flex items-center justify-center text-muted-foreground">
                   <div className="text-center">
                     <ChartBarIcon className="w-12 h-12 mx-auto mb-3 opacity-50" />
                     <p>No numerical columns found</p>
@@ -437,15 +445,17 @@ export function EnhancedDataVisualization({ columnProfiles, correlations, datase
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4 }}
         >
-          <Card className="glass">
+          <Card className="border border-border bg-card">
             <CardHeader>
-              <CardTitle className="text-white flex items-center">
-                <CpuChipIcon className="w-5 h-5 mr-2" />
+              <CardTitle className="text-foreground flex items-center">
+                <span className="mr-2 inline-flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-500/25 to-blue-500/25 text-cyan-300">
+                  <CpuChipIcon className="w-4 h-4" />
+                </span>
                 Feature Correlation Matrix
-                <Badge className="ml-3 bg-blue-500">{strongCorrelations.length} Strong</Badge>
+                <Badge className="ml-3 bg-elevated text-primary font-mono tabular-nums">{strongCorrelations.length} Strong</Badge>
               </CardTitle>
-              <CardDescription className="text-purple-200">
-                Significant relationships between numerical features (|r| > 0.5)
+              <CardDescription className="text-muted-foreground">
+                Significant relationships between numerical features (|r| &gt; 0.5)
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -454,7 +464,7 @@ export function EnhancedDataVisualization({ columnProfiles, correlations, datase
                   const absCorr = Math.abs(corr.correlation)
                   const strength = absCorr > 0.8 ? 'Very Strong' : absCorr > 0.6 ? 'Strong' : 'Moderate'
                   const direction = corr.correlation > 0 ? 'Positive' : 'Negative'
-                  const color = corr.correlation > 0 ? 'text-green-400' : 'text-red-400'
+                  const color = corr.correlation > 0 ? 'text-success' : 'text-destructive'
 
                   return (
                     <motion.div
@@ -462,28 +472,28 @@ export function EnhancedDataVisualization({ columnProfiles, correlations, datase
                       initial={{ opacity: 0, x: -20 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: 0.1 * index }}
-                      className="flex items-center justify-between p-4 bg-white/5 rounded-xl border border-white/10 hover:bg-white/10 transition-all duration-300"
+                      className="flex items-center justify-between p-4 border border-border bg-card rounded-lg hover:bg-elevated transition-colors duration-300"
                     >
                       <div className="flex-1">
                         <div className="flex items-center space-x-2 mb-1">
-                          <span className="text-white font-medium">{corr.column1}</span>
-                          <span className="text-purple-300">↔</span>
-                          <span className="text-white font-medium">{corr.column2}</span>
+                          <span className="text-foreground font-medium">{corr.column1}</span>
+                          <span className="text-muted-foreground">↔</span>
+                          <span className="text-foreground font-medium">{corr.column2}</span>
                         </div>
                         <div className="flex items-center space-x-3">
-                          <Badge className={`${direction === 'Positive' ? 'bg-green-500' : 'bg-red-500'} text-xs`}>
+                          <Badge className={`${direction === 'Positive' ? 'bg-success text-success-foreground' : 'bg-destructive text-destructive-foreground'} text-xs`}>
                             {direction}
                           </Badge>
-                          <Badge className="bg-purple-500 text-xs">{strength}</Badge>
+                          <Badge className="bg-elevated text-primary text-xs">{strength}</Badge>
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className={`text-xl font-bold ${color}`}>
+                        <div className={`text-xl font-bold font-mono tabular-nums ${color}`}>
                           {corr.correlation.toFixed(3)}
                         </div>
                         <Progress
                           value={absCorr * 100}
-                          className="w-20 h-2 bg-white/10"
+                          className="w-20 h-2 bg-elevated"
                         />
                       </div>
                     </motion.div>
@@ -501,13 +511,15 @@ export function EnhancedDataVisualization({ columnProfiles, correlations, datase
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.5 }}
       >
-        <Card className="glass">
+        <Card className="border border-border bg-card">
           <CardHeader>
-            <CardTitle className="text-white flex items-center">
-              <MagnifyingGlassIcon className="w-5 h-5 mr-2" />
+            <CardTitle className="text-foreground flex items-center">
+              <span className="mr-2 inline-flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-amber-500/25 to-orange-500/25 text-amber-300">
+                <MagnifyingGlassIcon className="w-4 h-4" />
+              </span>
               Data Science Insights
             </CardTitle>
-            <CardDescription className="text-purple-200">
+            <CardDescription className="text-muted-foreground">
               Professional analysis and recommendations for your dataset
             </CardDescription>
           </CardHeader>
@@ -515,23 +527,23 @@ export function EnhancedDataVisualization({ columnProfiles, correlations, datase
             <div className="grid md:grid-cols-2 gap-6">
               {/* Dataset Overview */}
               <div className="space-y-4">
-                <h4 className="text-lg font-semibold text-white mb-3">Dataset Overview</h4>
+                <h4 className="text-lg font-semibold text-foreground mb-3">Dataset Overview</h4>
                 <div className="space-y-3">
-                  <div className="flex justify-between items-center p-3 bg-white/5 rounded-lg">
-                    <span className="text-purple-300">Sample Size</span>
-                    <span className="text-white font-medium">{formatNumber(datasetInfo.rows)} rows</span>
+                  <div className="flex justify-between items-center p-3 border border-border bg-card rounded-lg">
+                    <span className="text-muted-foreground">Sample Size</span>
+                    <span className="text-foreground font-medium font-mono tabular-nums">{formatNumber(datasetInfo.rows)} rows</span>
                   </div>
-                  <div className="flex justify-between items-center p-3 bg-white/5 rounded-lg">
-                    <span className="text-purple-300">Feature Count</span>
-                    <span className="text-white font-medium">{datasetInfo.columns} columns</span>
+                  <div className="flex justify-between items-center p-3 border border-border bg-card rounded-lg">
+                    <span className="text-muted-foreground">Feature Count</span>
+                    <span className="text-foreground font-medium font-mono tabular-nums">{datasetInfo.columns} columns</span>
                   </div>
-                  <div className="flex justify-between items-center p-3 bg-white/5 rounded-lg">
-                    <span className="text-purple-300">Memory Usage</span>
-                    <span className="text-white font-medium">{datasetInfo.memory_usage}</span>
+                  <div className="flex justify-between items-center p-3 border border-border bg-card rounded-lg">
+                    <span className="text-muted-foreground">Memory Usage</span>
+                    <span className="text-foreground font-medium font-mono tabular-nums">{datasetInfo.memory_usage}</span>
                   </div>
-                  <div className="flex justify-between items-center p-3 bg-white/5 rounded-lg">
-                    <span className="text-purple-300">Missing Values</span>
-                    <span className={`font-medium ${datasetInfo.missing_values_total > 0 ? 'text-yellow-400' : 'text-green-400'}`}>
+                  <div className="flex justify-between items-center p-3 border border-border bg-card rounded-lg">
+                    <span className="text-muted-foreground">Missing Values</span>
+                    <span className={`font-medium font-mono tabular-nums ${datasetInfo.missing_values_total > 0 ? 'text-warning' : 'text-success'}`}>
                       {formatNumber(datasetInfo.missing_values_total)}
                     </span>
                   </div>
@@ -540,51 +552,51 @@ export function EnhancedDataVisualization({ columnProfiles, correlations, datase
 
               {/* Recommendations */}
               <div className="space-y-4">
-                <h4 className="text-lg font-semibold text-white mb-3">Recommendations</h4>
+                <h4 className="text-lg font-semibold text-foreground mb-3">Recommendations</h4>
                 <div className="space-y-3">
                   {overallQualityScore < 70 && (
-                    <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                    <div className="p-3 border border-border bg-elevated rounded-lg">
                       <div className="flex items-center mb-2">
-                        <ExclamationTriangleIcon className="w-4 h-4 text-yellow-400 mr-2" />
-                        <span className="text-yellow-400 font-medium">Data Quality</span>
+                        <ExclamationTriangleIcon className="w-4 h-4 text-warning mr-2" />
+                        <span className="text-warning font-medium">Data Quality</span>
                       </div>
-                      <p className="text-yellow-200 text-sm">
+                      <p className="text-muted-foreground text-sm">
                         Consider data cleaning and preprocessing to improve quality score.
                       </p>
                     </div>
                   )}
 
                   {datasetInfo.missing_values_total > 0 && (
-                    <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                    <div className="p-3 border border-border bg-elevated rounded-lg">
                       <div className="flex items-center mb-2">
-                        <ArrowTrendingUpIcon className="w-4 h-4 text-blue-400 mr-2" />
-                        <span className="text-blue-400 font-medium">Missing Data</span>
+                        <ArrowTrendingUpIcon className="w-4 h-4 text-primary mr-2" />
+                        <span className="text-primary font-medium">Missing Data</span>
                       </div>
-                      <p className="text-blue-200 text-sm">
+                      <p className="text-muted-foreground text-sm">
                         Handle missing values using imputation or removal strategies.
                       </p>
                     </div>
                   )}
 
                   {numericalColumns.some(col => col.outliers > 0) && (
-                    <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-lg">
+                    <div className="p-3 border border-border bg-elevated rounded-lg">
                       <div className="flex items-center mb-2">
-                        <EyeIcon className="w-4 h-4 text-purple-400 mr-2" />
-                        <span className="text-purple-400 font-medium">Outliers Detected</span>
+                        <EyeIcon className="w-4 h-4 text-primary mr-2" />
+                        <span className="text-primary font-medium">Outliers Detected</span>
                       </div>
-                      <p className="text-purple-200 text-sm">
+                      <p className="text-muted-foreground text-sm">
                         Review outliers for data entry errors or genuine extreme values.
                       </p>
                     </div>
                   )}
 
                   {strongCorrelations.length > 0 && (
-                    <div className="p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+                    <div className="p-3 border border-border bg-elevated rounded-lg">
                       <div className="flex items-center mb-2">
-                        <SparklesIcon className="w-4 h-4 text-green-400 mr-2" />
-                        <span className="text-green-400 font-medium">Feature Engineering</span>
+                        <SparklesIcon className="w-4 h-4 text-success mr-2" />
+                        <span className="text-success font-medium">Feature Engineering</span>
                       </div>
-                      <p className="text-green-200 text-sm">
+                      <p className="text-muted-foreground text-sm">
                         Strong correlations found - consider feature selection or dimensionality reduction.
                       </p>
                     </div>

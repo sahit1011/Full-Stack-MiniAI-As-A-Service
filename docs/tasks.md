@@ -1,4 +1,4 @@
-# 📋 Othor AI Assignment - Task Breakdown
+# 📋 Klaro Assignment - Task Breakdown
 
 ## 🎯 Project Overview
 Building a **Mini AI Analyst as a Service (AaaS)** with FastAPI backend and React frontend.

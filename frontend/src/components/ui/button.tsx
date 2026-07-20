@@ -4,30 +4,31 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
         default:
-          "bg-gradient-to-r from-purple-600 to-pink-600 text-primary-foreground shadow hover:from-purple-700 hover:to-pink-700 hover:shadow-lg hover:shadow-purple-500/25 transform hover:scale-105",
+          "bg-brand-gradient text-primary-foreground glow-primary hover:opacity-90",
         destructive:
-          "bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90",
+          "bg-destructive text-destructive-foreground hover:bg-destructive/90",
         outline:
-          "border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground",
+          "border border-border bg-transparent hover:bg-elevated hover:border-primary/40",
         secondary:
-          "bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80",
-        ghost: "hover:bg-accent hover:text-accent-foreground",
+          "bg-secondary text-secondary-foreground hover:bg-elevated",
+        ghost: "hover:bg-elevated",
         link: "text-primary underline-offset-4 hover:underline",
+        // Legacy variant keys — re-pointed to the new system (kept so existing markup is safe)
         gradient:
-          "bg-gradient-to-r from-blue-600 to-cyan-600 text-white shadow hover:from-blue-700 hover:to-cyan-700 hover:shadow-lg hover:shadow-blue-500/25 transform hover:scale-105",
+          "bg-brand-gradient text-primary-foreground glow-primary hover:opacity-90",
         glass:
-          "glass text-white shadow-lg hover:glass-strong transform hover:scale-105",
+          "border border-border bg-card hover:bg-elevated",
       },
       size: {
         default: "h-10 px-4 py-2",
-        sm: "h-8 rounded-lg px-3 text-xs",
-        lg: "h-12 rounded-xl px-8",
-        xl: "h-14 rounded-2xl px-10 text-base",
+        sm: "h-8 rounded-md px-3 text-xs",
+        lg: "h-12 rounded-md px-8",
+        xl: "h-12 rounded-md px-8 text-base",
         icon: "h-10 w-10",
       },
     },

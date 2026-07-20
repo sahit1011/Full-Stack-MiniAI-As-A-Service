@@ -1,5 +1,5 @@
 """
-Simple database setup script for Othor AI.
+Simple database setup script for Klaro.
 This script provides an easy way to set up PostgreSQL using Docker.
 """
 import os
@@ -53,8 +53,8 @@ def setup_postgresql_docker():
         max_attempts = 30
         for attempt in range(max_attempts):
             result = subprocess.run([
-                'docker', 'exec', 'othor_ai_postgres', 
-                'pg_isready', '-U', 'othor_user', '-d', 'othor_ai'
+                'docker', 'exec', 'klaro_postgres', 
+                'pg_isready', '-U', 'klaro_user', '-d', 'klaro'
             ], capture_output=True, text=True)
             
             if result.returncode == 0:
@@ -78,9 +78,9 @@ def create_env_file():
     """Create .env file with PostgreSQL configuration."""
     print("\n📝 Creating .env file...")
     
-    database_url = "postgresql://othor_user:othor_secure_pass_2024@localhost:5432/othor_ai"
+    database_url = "postgresql://klaro_user:othor_secure_pass_2024@localhost:5432/klaro"
     
-    env_content = f"""# Environment Configuration for Othor AI Backend
+    env_content = f"""# Environment Configuration for Klaro Backend
 
 # Database Configuration (PostgreSQL)
 DATABASE_URL={database_url}
@@ -104,7 +104,7 @@ OPENROUTER_API_KEY=your_openrouter_api_key_here
 OPENROUTER_MODEL=deepseek/deepseek-chat
 
 # Application Configuration
-APP_NAME=Othor AI - Mini AI Analyst
+APP_NAME=Klaro - Mini AI Analyst
 APP_VERSION=1.0.0
 
 # CORS Configuration
@@ -132,7 +132,7 @@ def test_connection():
         # Import here to avoid issues if dependencies aren't installed
         from sqlalchemy import create_engine, text
         
-        database_url = "postgresql://othor_user:othor_secure_pass_2024@localhost:5432/othor_ai"
+        database_url = "postgresql://klaro_user:othor_secure_pass_2024@localhost:5432/klaro"
         engine = create_engine(database_url)
         
         with engine.connect() as conn:
@@ -150,7 +150,7 @@ def test_connection():
 
 def main():
     """Main setup function."""
-    print("🚀 Othor AI Database Setup")
+    print("🚀 Klaro Database Setup")
     print("=" * 40)
     
     print("\nThis script will:")
@@ -185,8 +185,8 @@ def main():
     
     print("\n💡 Database access:")
     print("   PostgreSQL: localhost:5432")
-    print("   Database: othor_ai")
-    print("   Username: othor_user")
+    print("   Database: klaro")
+    print("   Username: klaro_user")
     print("   Password: othor_secure_pass_2024")
     
     print("\n🔧 Management:")

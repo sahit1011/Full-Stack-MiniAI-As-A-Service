@@ -1,5 +1,5 @@
 /**
- * API service for communicating with the Othor AI backend
+ * API service for communicating with the Klaro backend
  * Includes authentication and history endpoints for database integration
  */
 import axios from 'axios';
@@ -178,8 +178,9 @@ export interface TrainResponse {
 
 // API Service Class
 class ApiService {
-  // Authentication endpoints
-  async signup(data: SignupRequest): Promise<AuthResponse> {
+  // Authentication endpoints. NOTE: /auth/signup returns the created User (201), NOT a
+  // token — the client must log in afterward (the signup page auto-logs-in on success).
+  async signup(data: SignupRequest): Promise<User> {
     const response = await api.post('/auth/signup', data);
     return response.data;
   }
@@ -307,16 +308,44 @@ class ApiService {
     return response.data;
   }
 
-  // Train model
-  async trainModel(request: TrainRequest): Promise<TrainResponse> {
+  // Train model — now asynchronous: returns 202 { model_id, status: "queued" }.
+  // Poll getTrainingStatus(model_id) until status is "completed" or "failed".
+  async trainModel(request: TrainRequest): Promise<{ model_id: string; status: string; message?: string }> {
     const response = await api.post('/train/', request);
     return response.data;
   }
 
-  // Enhanced training
-  async trainEnhancedModel(sessionId: string, request: any) {
+  // Enhanced training — also async (202 + poll). optimization runs server-side ("medium").
+  async trainEnhancedModel(sessionId: string, request: any): Promise<{ model_id: string; status: string; message?: string }> {
     const response = await api.post(`/train/${sessionId}/enhanced-train`, request);
     return response.data;
+  }
+
+  // Poll the lifecycle of a background training job (queued → training → completed | failed).
+  async getTrainingStatus(modelId: string) {
+    const response = await api.get(`/train/status/${modelId}`);
+    return response.data;
+  }
+
+  // Poll until a training job reaches a terminal state. Returns the final status payload
+  // (which includes evaluation_metrics + training_info when completed).
+  async waitForTraining(
+    modelId: string,
+    opts: { onTick?: (status: string) => void; intervalMs?: number; timeoutMs?: number } = {}
+  ): Promise<any> {
+    const intervalMs = opts.intervalMs ?? 1500;
+    const timeoutMs = opts.timeoutMs ?? 5 * 60 * 1000; // 5 min ceiling
+    const deadline = Date.now() + timeoutMs;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const status = await this.getTrainingStatus(modelId);
+      opts.onTick?.(status.status);
+      if (status.status === 'completed' || status.status === 'failed') return status;
+      if (Date.now() > deadline) {
+        return { ...status, status: 'failed', error_message: 'Training timed out. Please try again.' };
+      }
+      await new Promise((r) => setTimeout(r, intervalMs));
+    }
   }
 
   // Get model recommendations
@@ -327,12 +356,6 @@ class ApiService {
         problem_type: problemType
       }
     });
-    return response.data;
-  }
-
-  // Get model summary
-  async getModelSummary(modelId: string) {
-    const response = await api.get(`/summary/${modelId}`);
     return response.data;
   }
 

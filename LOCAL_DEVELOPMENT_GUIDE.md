@@ -1,6 +1,6 @@
-# 🚀 Othor AI - Local Development Guide
+# 🚀 Klaro - Local Development Guide
 
-This guide provides multiple ways to run the Othor AI application locally for development and testing.
+This guide provides multiple ways to run the Klaro application locally for development and testing.
 
 ## 📋 Prerequisites
 

@@ -16,18 +16,30 @@ warnings.filterwarnings('ignore')
 logger = logging.getLogger(__name__)
 
 # ML imports
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-from sklearn.linear_model import LogisticRegression, LinearRegression
-from sklearn.metrics import (
-    accuracy_score, precision_score, recall_score, f1_score, 
-    mean_squared_error, r2_score, mean_absolute_error,
-    classification_report, confusion_matrix
+from sklearn.model_selection import (
+    train_test_split, RandomizedSearchCV, cross_val_score, StratifiedKFold, KFold
 )
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.linear_model import LogisticRegression, LinearRegression, Ridge, Lasso
+from sklearn.svm import SVC, SVR
+from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
+from sklearn.naive_bayes import GaussianNB
+from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score, f1_score,
+    mean_squared_error, r2_score, mean_absolute_error,
+    classification_report, confusion_matrix,
+    roc_auc_score, balanced_accuracy_score, explained_variance_score,
+)
+try:
+    from sklearn.metrics import mean_absolute_percentage_error
+except ImportError:  # older sklearn without MAPE
+    mean_absolute_percentage_error = None
 from sklearn.pipeline import Pipeline
 import xgboost as xgb
 
 from .data_processor import data_processor
+from .storage import storage
 
 
 class MLProcessor:
@@ -37,21 +49,91 @@ class MLProcessor:
         self.models_dir = Path("data/models")
         self.models_dir.mkdir(parents=True, exist_ok=True)
         
-        # Model configurations
-        self.model_configs = {
+        # Algorithm registry: algorithm -> problem_type -> (estimator class, default params).
+        # Classes (not instances) so a fresh, isolated estimator is built per training run.
+        # Only problem types an algorithm genuinely supports are listed — anything missing is
+        # rejected at train time rather than silently substituted with a different model.
+        # (random_state is only set for estimators that accept it.)
+        self.algorithm_registry = {
             "random_forest": {
-                "classification": RandomForestClassifier(n_estimators=100, random_state=42),
-                "regression": RandomForestRegressor(n_estimators=100, random_state=42)
+                "classification": (RandomForestClassifier, {"n_estimators": 100, "random_state": 42}),
+                "regression": (RandomForestRegressor, {"n_estimators": 100, "random_state": 42}),
             },
             "logistic_regression": {
-                "classification": LogisticRegression(random_state=42, max_iter=1000),
-                "regression": LinearRegression()
+                "classification": (LogisticRegression, {"random_state": 42, "max_iter": 1000}),
+                "regression": (LinearRegression, {}),
             },
             "xgboost": {
-                "classification": xgb.XGBClassifier(random_state=42, eval_metric='logloss'),
-                "regression": xgb.XGBRegressor(random_state=42)
-            }
+                "classification": (xgb.XGBClassifier, {"random_state": 42, "eval_metric": "logloss"}),
+                "regression": (xgb.XGBRegressor, {"random_state": 42}),
+            },
+            "svm": {
+                # probability=True so classification confidence is a real calibrated-ish proba
+                "classification": (SVC, {"probability": True, "random_state": 42}),
+                "regression": (SVR, {}),
+            },
+            "knn": {
+                "classification": (KNeighborsClassifier, {}),
+                "regression": (KNeighborsRegressor, {}),
+            },
+            "naive_bayes": {
+                # Gaussian NB is classification-only — no honest regression counterpart
+                "classification": (GaussianNB, {}),
+            },
+            "decision_tree": {
+                "classification": (DecisionTreeClassifier, {"random_state": 42}),
+                "regression": (DecisionTreeRegressor, {"random_state": 42}),
+            },
+            "ridge": {
+                "regression": (Ridge, {"random_state": 42}),
+            },
+            "lasso": {
+                "regression": (Lasso, {"random_state": 42}),
+            },
         }
+
+        # RandomizedSearch grids (keys prefixed "model__" for the Pipeline step). Params that
+        # don't apply to a given estimator are filtered out at tune time, so a single grid per
+        # algorithm safely covers both its classification and regression heads.
+        self.param_distributions = {
+            "random_forest": {
+                "model__n_estimators": [100, 200, 300],
+                "model__max_depth": [None, 10, 20, 30],
+                "model__min_samples_split": [2, 5, 10],
+                "model__max_features": ["sqrt", "log2", None],
+            },
+            "xgboost": {
+                "model__n_estimators": [100, 200, 300],
+                "model__max_depth": [3, 5, 7],
+                "model__learning_rate": [0.01, 0.05, 0.1, 0.3],
+                "model__subsample": [0.8, 1.0],
+            },
+            "logistic_regression": {  # classification head only; LinearRegression has none of these
+                "model__C": [0.01, 0.1, 1, 10],
+            },
+            "svm": {
+                "model__C": [0.1, 1, 10],
+                "model__gamma": ["scale", "auto"],
+                "model__kernel": ["rbf", "linear"],
+            },
+            "knn": {
+                "model__n_neighbors": [3, 5, 7, 11],
+                "model__weights": ["uniform", "distance"],
+            },
+            "decision_tree": {
+                "model__max_depth": [None, 5, 10, 20],
+                "model__min_samples_split": [2, 5, 10],
+            },
+            "ridge": {"model__alpha": [0.1, 1.0, 10.0, 100.0]},
+            "lasso": {"model__alpha": [0.001, 0.01, 0.1, 1.0]},
+        }
+
+        # n_iter budget per optimization level (capped by grid size at tune time)
+        self.optimization_budgets = {"none": 0, "fast": 8, "medium": 20, "thorough": 40}
+
+    def get_supported_algorithms(self) -> Dict[str, List[str]]:
+        """Map of algorithm -> the problem types it genuinely supports (for API validation/UX)."""
+        return {algo: sorted(by_type.keys()) for algo, by_type in self.algorithm_registry.items()}
     
     def generate_model_id(self, session_id: str) -> str:
         """Generate unique model ID"""
@@ -67,6 +149,8 @@ class MLProcessor:
         algorithm: str = "random_forest",
         test_size: float = 0.2,
         random_state: int = 42,
+        optimization_level: str = "none",
+        model_id: str = None,
         X_train: Any = None,
         X_test: Any = None,
         y_train: Any = None,
@@ -126,11 +210,50 @@ class MLProcessor:
             if problem_type not in ["classification", "regression"]:
                 raise ValueError(f"Invalid problem type: {problem_type}")
 
-            # Get model
-            if algorithm not in self.model_configs:
-                raise ValueError(f"Unsupported algorithm: {algorithm}")
+            # Resolve the estimator — never silently substitute a different algorithm.
+            if algorithm not in self.algorithm_registry:
+                supported = sorted(self.algorithm_registry.keys())
+                raise ValueError(f"Unsupported algorithm '{algorithm}'. Supported algorithms: {supported}")
 
-            model = self.model_configs[algorithm][problem_type]
+            if problem_type not in self.algorithm_registry[algorithm]:
+                supported_types = sorted(self.algorithm_registry[algorithm].keys())
+                raise ValueError(
+                    f"Algorithm '{algorithm}' does not support {problem_type}. "
+                    f"It supports: {supported_types}."
+                )
+
+            # Build a fresh estimator instance for this run (registry holds classes, not instances)
+            model_class, model_params = self.algorithm_registry[algorithm][problem_type]
+            model = model_class(**model_params)
+
+            # ---- Class imbalance handling (classification only) ----
+            # If the minority class is under-represented, give the estimator a fighting chance:
+            # prefer class_weight="balanced" when supported, else XGBoost's scale_pos_weight.
+            imbalance_handling = False
+            if problem_type == "classification":
+                try:
+                    y_train_series = pd.Series(np.asarray(y_train_processed))
+                    class_counts = y_train_series.value_counts()
+                    n_train = int(class_counts.sum())
+                    minority_fraction = (class_counts.min() / n_train) if n_train > 0 else 1.0
+                    if minority_fraction < 0.2:
+                        if "class_weight" in model.get_params():
+                            new_params = dict(model_params)
+                            new_params["class_weight"] = "balanced"
+                            model = model_class(**new_params)
+                            imbalance_handling = True
+                        elif algorithm == "xgboost" and len(class_counts) == 2:
+                            # binary: scale_pos_weight = n_negative / n_positive
+                            sorted_counts = class_counts.sort_index()
+                            n_negative = int(sorted_counts.iloc[0])
+                            n_positive = int(sorted_counts.iloc[1])
+                            if n_positive > 0:
+                                new_params = dict(model_params)
+                                new_params["scale_pos_weight"] = n_negative / n_positive
+                                model = model_class(**new_params)
+                                imbalance_handling = True
+                except Exception as e:
+                    logger.warning(f"Class imbalance check failed, training without balancing: {e}")
 
             # Create pipeline with preprocessing and model
             from sklearn.pipeline import Pipeline
@@ -139,24 +262,121 @@ class MLProcessor:
                 ('model', model)
             ])
 
-            # Train pipeline on original data (it will handle preprocessing internally)
-            pipeline.fit(X_train, y_train_processed)
+            # ---- Cross-validation splitter + scoring (shared by CV and tuning) ----
+            n_train_samples = len(y_train_processed)
+            if problem_type == "classification":
+                try:
+                    smallest_class_count = int(pd.Series(np.asarray(y_train_processed)).value_counts().min())
+                except Exception:
+                    smallest_class_count = 2
+                cv_folds = max(2, min(5, smallest_class_count))
+                cv_splitter = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=42)
+                cv_scoring = "f1_weighted"
+            else:
+                cv_folds = min(5, max(2, n_train_samples))
+                cv_splitter = KFold(n_splits=cv_folds, shuffle=True, random_state=42)
+                cv_scoring = "r2"
+
+            # ---- Cross-validation (always; cheap, honest signal on the TRAINING split) ----
+            cv_mean = None
+            cv_std = None
+            try:
+                cv_scores = cross_val_score(
+                    pipeline, X_train, y_train_processed,
+                    cv=cv_splitter, scoring=cv_scoring, n_jobs=-1
+                )
+                cv_mean = float(np.mean(cv_scores))
+                cv_std = float(np.std(cv_scores))
+            except Exception as e:
+                logger.warning(f"Cross-validation failed, continuing without CV metrics: {e}")
+                cv_mean = None
+                cv_std = None
+
+            # ---- Hyperparameter tuning (only when requested and enough data) ----
+            best_params = None
+            tuned = False
+            do_tune = optimization_level != "none" and n_train_samples >= 200
+            if do_tune:
+                raw_grid = self.param_distributions.get(algorithm, {})
+                supported_model_params = pipeline.named_steps['model'].get_params()
+                filtered_grid = {
+                    k: v for k, v in raw_grid.items()
+                    if k.startswith("model__") and k[len("model__"):] in supported_model_params
+                }
+                if filtered_grid:
+                    # n_iter capped by total grid size so we never request more combos than exist
+                    grid_size = 1
+                    for v in filtered_grid.values():
+                        grid_size *= len(v)
+                    budget = self.optimization_budgets.get(optimization_level, 0)
+                    n_iter = min(budget, grid_size)
+                    if n_iter >= 1:
+                        try:
+                            search = RandomizedSearchCV(
+                                pipeline,
+                                param_distributions=filtered_grid,
+                                n_iter=n_iter,
+                                cv=cv_splitter,
+                                scoring=cv_scoring,
+                                n_jobs=-1,
+                                random_state=42,
+                                refit=True,
+                            )
+                            search.fit(X_train, y_train_processed)
+                            pipeline = search.best_estimator_  # already fitted
+                            best_params = {k: self._jsonable(v) for k, v in search.best_params_.items()}
+                            tuned = True
+                        except Exception as e:
+                            logger.warning(f"Hyperparameter tuning failed, falling back to untuned model: {e}")
+                            tuned = False
+
+            # Fit the untuned pipeline only if tuning didn't already produce a fitted estimator
+            if not tuned:
+                pipeline.fit(X_train, y_train_processed)
 
             # Make predictions using the pipeline
             y_pred = pipeline.predict(X_test)
 
+            # Probabilities for classification metrics (roc_auc) when the model supports it
+            y_proba = None
+            if hasattr(pipeline.named_steps['model'], 'predict_proba'):
+                try:
+                    y_proba = pipeline.predict_proba(X_test)
+                except Exception:
+                    y_proba = None
+
             # Calculate metrics
-            metrics = self._calculate_metrics(y_test_processed, y_pred, problem_type)
+            metrics = self._calculate_metrics(y_test_processed, y_pred, problem_type, y_proba=y_proba)
+            # Attach honest CV signal
+            metrics["cv_mean"] = cv_mean
+            metrics["cv_std"] = cv_std
             logger.info(f"Calculated metrics: {metrics}")
 
-            # Get feature importance
+            # Get feature importance — pass the full pipeline (the helper needs both the
+            # fitted model and the preprocessor to map importances back to feature names).
+            # Previously the bare estimator was passed, so .named_steps always threw and
+            # feature_importance was silently empty for every model.
             try:
-                feature_importance = self._get_feature_importance(pipeline.named_steps['model'], X)
-            except:
+                feature_importance = self._get_feature_importance(pipeline, X)
+            except Exception as e:
+                logger.warning(f"Could not extract feature importance: {e}")
                 feature_importance = {}
 
+            # Regression: capture the test-residual std so predict() can return honest
+            # prediction intervals (pred ± 1.96·σ) instead of a meaningless scalar "confidence".
+            residual_std = None
+            if problem_type == "regression":
+                try:
+                    residual_std = float(
+                        np.std(np.asarray(y_test_processed, dtype=float) - np.asarray(y_pred, dtype=float))
+                    )
+                except Exception as e:
+                    logger.warning(f"Could not compute residual std: {e}")
+                    residual_std = None
+
             # Generate model ID and save
-            model_id = self.generate_model_id(session_id or "enhanced")
+            # Use a caller-supplied id (async-job flow pre-registers it) or generate one
+            model_id = model_id or self.generate_model_id(session_id or "enhanced")
 
             # Store original feature names (before preprocessing) for prediction
             original_feature_names = X.columns.tolist() if hasattr(X, 'columns') else [f'feature_{i}' for i in range(X.shape[1])]
@@ -167,8 +387,13 @@ class MLProcessor:
                 'problem_type': problem_type,
                 'algorithm': algorithm,
                 'feature_names': original_feature_names,  # Store original feature names
-                'evaluation_metrics': metrics,  # Include evaluation metrics
+                'evaluation_metrics': metrics,  # Include evaluation metrics (incl. cv_mean/cv_std)
                 'feature_importance': feature_importance,  # Include feature importance
+                'optimization_level': optimization_level,
+                'tuned': tuned,
+                'best_params': best_params,
+                'class_weight_applied': imbalance_handling,
+                'residual_std': residual_std,  # for regression prediction intervals
                 'timestamp': datetime.now(),  # Include timestamp
                 'preprocessing_info': {
                     'enhanced_preprocessing': False,  # This is the regular training method
@@ -186,9 +411,13 @@ class MLProcessor:
                 "algorithm": algorithm,
                 "test_size": test_size,
                 "training_samples": len(X_train_processed),
-                "test_samples": len(X_test_processed)
+                "test_samples": len(X_test_processed),
+                "optimization_level": optimization_level,
+                "tuned": tuned,
+                "best_params": best_params,
+                "class_weight_applied": imbalance_handling,
             }
-            
+
             result = {
                 "model_id": model_id,
                 "session_id": session_id or "enhanced",
@@ -207,30 +436,87 @@ class MLProcessor:
         except Exception as e:
             raise ValueError(f"Model training failed: {str(e)}")
     
-    def _calculate_metrics(self, y_true, y_pred, problem_type: str) -> Dict[str, Any]:
+    @staticmethod
+    def _jsonable(value):
+        """Cast numpy scalars/arrays to plain Python types so results stay JSON-serializable."""
+        if isinstance(value, (np.integer,)):
+            return int(value)
+        if isinstance(value, (np.floating,)):
+            return float(value)
+        if isinstance(value, (np.bool_,)):
+            return bool(value)
+        if isinstance(value, np.ndarray):
+            return value.tolist()
+        return value
+
+    def _calculate_metrics(self, y_true, y_pred, problem_type: str, y_proba=None) -> Dict[str, Any]:
         """Calculate evaluation metrics based on problem type"""
         metrics = {}
-        
+
         if problem_type == "classification":
             metrics.update({
                 "accuracy": float(accuracy_score(y_true, y_pred)),
                 "precision": float(precision_score(y_true, y_pred, average='weighted', zero_division=0)),
                 "recall": float(recall_score(y_true, y_pred, average='weighted', zero_division=0)),
-                "f1_score": float(f1_score(y_true, y_pred, average='weighted', zero_division=0))
+                "f1_score": float(f1_score(y_true, y_pred, average='weighted', zero_division=0)),
+                "balanced_accuracy": float(balanced_accuracy_score(y_true, y_pred)),
             })
-            
-            # Add confusion matrix for binary classification
-            if len(np.unique(y_true)) == 2:
+
+            # Full per-class report (precision/recall/f1/support per class)
+            try:
+                report = classification_report(y_true, y_pred, output_dict=True, zero_division=0)
+                # Cast every nested numpy value to plain Python for JSON safety
+                metrics["per_class_report"] = {
+                    label: ({k: self._jsonable(v) for k, v in stats.items()}
+                            if isinstance(stats, dict) else self._jsonable(stats))
+                    for label, stats in report.items()
+                }
+            except Exception as e:
+                logger.warning(f"Could not compute per-class report: {e}")
+
+            # Confusion matrix for ALL classes (not just binary)
+            try:
                 cm = confusion_matrix(y_true, y_pred)
                 metrics["confusion_matrix"] = cm.tolist()
-        
+            except Exception as e:
+                logger.warning(f"Could not compute confusion matrix: {e}")
+
+            # ROC AUC when probabilities are available
+            if y_proba is not None:
+                try:
+                    classes = np.unique(y_true)
+                    if len(classes) == 2:
+                        metrics["roc_auc"] = float(roc_auc_score(y_true, y_proba[:, 1]))
+                    else:
+                        metrics["roc_auc"] = float(
+                            roc_auc_score(y_true, y_proba, multi_class="ovr", average="weighted")
+                        )
+                except Exception as e:
+                    logger.warning(f"Could not compute ROC AUC: {e}")
+
         else:  # regression
             metrics.update({
                 "rmse": float(np.sqrt(mean_squared_error(y_true, y_pred))),
                 "mae": float(mean_absolute_error(y_true, y_pred)),
-                "r2_score": float(r2_score(y_true, y_pred))
+                "r2_score": float(r2_score(y_true, y_pred)),
+                "explained_variance": float(explained_variance_score(y_true, y_pred)),
             })
-        
+
+            # MAPE — guard against zero targets (division by zero) and missing sklearn impl
+            try:
+                y_true_arr = np.asarray(y_true, dtype=float)
+                if mean_absolute_percentage_error is not None and not np.any(y_true_arr == 0):
+                    metrics["mape"] = float(mean_absolute_percentage_error(y_true, y_pred))
+                else:
+                    mask = y_true_arr != 0
+                    if np.any(mask):
+                        y_pred_arr = np.asarray(y_pred, dtype=float)
+                        metrics["mape"] = float(
+                            np.mean(np.abs((y_true_arr[mask] - y_pred_arr[mask]) / y_true_arr[mask]))
+                        )
+            except Exception as e:
+                logger.warning(f"Could not compute MAPE: {e}")
+
         return metrics
     
     def _get_feature_importance(self, pipeline, X: pd.DataFrame) -> Dict[str, float]:
@@ -279,22 +565,36 @@ class MLProcessor:
             return {}
     
     def _save_model(self, pipeline, model_id: str, metadata: Dict[str, Any]) -> Path:
-        """Save trained model and metadata to disk"""
+        """Save trained model and metadata to disk, mirrored to Supabase Storage."""
         model_path = self.models_dir / f"{model_id}.joblib"
         metadata_path = self.models_dir / f"{model_id}_metadata.joblib"
-        
+
         # Save model
         joblib.dump(pipeline, model_path)
-        
+
         # Save metadata
         joblib.dump(metadata, metadata_path)
-        
+
+        # Write-through so the trained model survives a redeploy (no-op when storage
+        # is not configured — local disk is authoritative then).
+        storage.upload(model_path, f"models/{model_id}.joblib")
+        storage.upload(metadata_path, f"models/{model_id}_metadata.joblib")
+
         return model_path
 
     def load_model(self, model_id: str) -> Tuple[Pipeline, Dict[str, Any]]:
-        """Load trained model and metadata from disk"""
+        """Load trained model and metadata from disk.
+
+        On a local cache miss (e.g. after a redeploy wiped the disk), restore the
+        artifacts from Supabase Storage before loading.
+        """
         model_path = self.models_dir / f"{model_id}.joblib"
         metadata_path = self.models_dir / f"{model_id}_metadata.joblib"
+
+        if not model_path.exists():
+            storage.download_to(f"models/{model_id}.joblib", model_path)
+        if not metadata_path.exists():
+            storage.download_to(f"models/{model_id}_metadata.joblib", metadata_path)
 
         if not model_path.exists():
             raise ValueError(f"Model {model_id} not found")
@@ -341,63 +641,6 @@ class MLProcessor:
             # Default to classification if detection fails
             return "classification"
 
-    def train_model_enhanced(
-        self,
-        df: pd.DataFrame,
-        target_column: str,
-        model_name: str,
-        problem_type: str,
-        preprocessor: Any,
-        feature_names: List[str],
-        optimization_level: str = "medium"
-    ) -> Dict[str, Any]:
-        """Enhanced model training with preprocessing pipeline"""
-        try:
-            logger.info(f"Starting enhanced training for {model_name} ({problem_type})")
-
-            # Prepare data
-            X = df.drop(columns=[target_column])
-            y = df[target_column]
-
-            # Split data
-            from sklearn.model_selection import train_test_split
-            X_train, X_test, y_train, y_test = train_test_split(
-                X, y, test_size=0.2, random_state=42, stratify=y if problem_type == "classification" else None
-            )
-
-            # Apply preprocessing
-            X_train_processed = preprocessor.fit_transform(X_train)
-            X_test_processed = preprocessor.transform(X_test)
-
-            # Train model using existing method
-            training_result = self.train_model(
-                file_path=None,  # We already have the data
-                target_column=target_column,
-                session_id=f"enhanced_{model_name}",
-                model_type=problem_type,
-                algorithm=model_name,
-                test_size=0.2,
-                random_state=42,
-                X_train=X_train_processed,
-                X_test=X_test_processed,
-                y_train=y_train,
-                y_test=y_test
-            )
-
-            # Add enhanced information
-            training_result.update({
-                "preprocessing_applied": True,
-                "feature_names": feature_names,
-                "optimization_level": optimization_level,
-                "enhanced_training": True
-            })
-
-            return training_result
-
-        except Exception as e:
-            logger.error(f"Error in enhanced training: {str(e)}")
-            raise ValueError(f"Enhanced training failed: {str(e)}")
-
     def predict(self, model_id: str, input_data: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Make predictions using a trained model"""
         try:
@@ -434,18 +677,31 @@ class MLProcessor:
                     probabilities = None
 
             # Calculate confidence scores
-            confidence_scores = self._calculate_confidence_scores(pipeline, df, metadata['problem_type'])
+            problem_type = metadata['problem_type']
+            confidence_scores = self._calculate_confidence_scores(pipeline, df, problem_type)
+
+            # Regression: honest ~95% prediction interval from the stored test-residual std
+            residual_std = metadata.get('residual_std') if problem_type == "regression" else None
 
             # Format results
             results = []
             for i, pred in enumerate(predictions):
+                pred_value = self._convert_prediction_type(pred)
                 result = {
-                    "prediction": self._convert_prediction_type(pred),
-                    "confidence": float(confidence_scores[i]) if confidence_scores is not None else 0.5
+                    "prediction": pred_value,
+                    # Real probability-derived confidence, or null when the model can't produce one
+                    # (e.g. regression, or a classifier without predict_proba) — never a fabricated number
+                    "confidence": float(confidence_scores[i]) if confidence_scores is not None else None
                 }
 
                 if probabilities and i < len(probabilities):
                     result["probabilities"] = probabilities[i]
+
+                # Attach a real prediction interval for regression (pred ± 1.96·σ_residual)
+                if residual_std is not None and isinstance(pred_value, (int, float)):
+                    margin = 1.96 * residual_std
+                    result["interval_low"] = float(pred_value - margin)
+                    result["interval_high"] = float(pred_value + margin)
 
                 results.append(result)
 
@@ -459,28 +715,18 @@ class MLProcessor:
             raise ValueError(f"Prediction failed: {str(e)}")
 
     def _calculate_confidence_scores(self, pipeline, X: pd.DataFrame, problem_type: str) -> Optional[List[float]]:
-        """Calculate confidence scores for predictions"""
+        """
+        Real per-prediction confidence for classification (max class probability).
+
+        Returns None for regression — a single scalar "confidence" is not a meaningful quantity
+        for a continuous prediction. (Honest prediction intervals are a planned P1 upgrade; until
+        then we return null rather than the old fabricated 1/(1+std) batch statistic.)
+        """
         try:
             if problem_type == "classification" and hasattr(pipeline.named_steps['model'], 'predict_proba'):
-                # For classification, use max probability as confidence
                 proba = pipeline.predict_proba(X)
                 return [float(np.max(prob)) for prob in proba]
-
-            elif problem_type == "regression":
-                # For regression, use a simple confidence based on prediction variance
-                # This is a simplified approach - in practice, you might use prediction intervals
-                predictions = pipeline.predict(X)
-                std_pred = np.std(predictions)
-                if std_pred > 0:
-                    # Normalize confidence between 0.1 and 0.9
-                    normalized_conf = 1.0 / (1.0 + std_pred)
-                    return [float(max(0.1, min(0.9, normalized_conf))) for _ in predictions]
-                else:
-                    return [0.8 for _ in predictions]  # Default confidence
-
-            else:
-                return None
-
+            return None
         except Exception:
             return None
 

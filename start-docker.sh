@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# Othor AI - Docker Startup Script
+# Klaro - Docker Startup Script
 # This script makes it easy for recruiters to start the application
 
-echo "🚀 Starting Othor AI - Mini AI Analyst as a Service"
+echo "🚀 Starting Klaro - Mini AI Analyst as a Service"
 echo "=================================================="
 
 # Check if Docker is installed
@@ -65,7 +65,7 @@ else
 fi
 
 echo ""
-echo "🎉 Othor AI is starting up!"
+echo "🎉 Klaro is starting up!"
 echo ""
 echo "📱 Access the application:"
 echo "   Frontend:  http://localhost:3000"

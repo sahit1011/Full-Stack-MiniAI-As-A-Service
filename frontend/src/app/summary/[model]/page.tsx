@@ -1,11 +1,14 @@
 "use client"
 
 import { useState, useEffect, use } from "react"
-import { useRouter } from "next/navigation"
 import { motion } from "framer-motion"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import PipelineStepper from "@/components/PipelineStepper"
+import ErrorState from "@/components/ErrorState"
+import PageSkeleton from "@/components/PageSkeleton"
 
 import {
   ArrowLeftIcon,
@@ -13,11 +16,11 @@ import {
   DocumentTextIcon,
   ChartBarIcon,
   LightBulbIcon,
-  ExclamationTriangleIcon,
   CheckCircleIcon,
   InformationCircleIcon,
   CpuChipIcon,
-  EyeIcon
+  EyeIcon,
+  ArrowPathIcon
 } from "@heroicons/react/24/outline"
 import { toast } from "sonner"
 import { apiService } from "@/lib/api"
@@ -79,13 +82,13 @@ interface LLMEnhancedSummary {
 }
 
 export default function SummaryPage({ params }: { params: Promise<{ model: string }> }) {
-  const router = useRouter()
   const resolvedParams = use(params)
   const [summaryData, setSummaryData] = useState<ModelSummaryData | null>(null)
   const [llmSummary, setLlmSummary] = useState<LLMEnhancedSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [llmLoading, setLlmLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [llmError, setLlmError] = useState<string | null>(null)
   const [showLLMSummary, setShowLLMSummary] = useState(false)
 
   useEffect(() => {
@@ -114,47 +117,37 @@ export default function SummaryPage({ params }: { params: Promise<{ model: strin
   const loadLLMSummary = async () => {
     try {
       setLlmLoading(true)
+      setLlmError(null)
       const data = await apiService.getLLMEnhancedSummary(resolvedParams.model)
       setLlmSummary(data)
       setShowLLMSummary(true)
       toast.success('AI-enhanced summary generated!')
     } catch (err: any) {
       console.error('Error loading LLM summary:', err)
-      toast.error('Failed to generate AI-enhanced summary')
+      const errorMessage = err.response?.data?.detail?.message || 'Failed to generate AI-enhanced summary'
+      setLlmError(errorMessage)
+      toast.error(errorMessage)
     } finally {
       setLlmLoading(false)
     }
   }
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <motion.div
-            animate={{ rotate: 360 }}
-            transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-            className="w-16 h-16 mx-auto mb-4 bg-gradient-to-r from-purple-500 to-pink-500 rounded-2xl flex items-center justify-center"
-          >
-            <DocumentTextIcon className="w-8 h-8 text-white" />
-          </motion.div>
-          <h2 className="text-2xl font-bold text-white mb-2">Loading Summary</h2>
-          <p className="text-purple-200">Generating comprehensive insights...</p>
-        </div>
-      </div>
-    )
+    return <PageSkeleton />
   }
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center max-w-md">
-          <ExclamationTriangleIcon className="w-16 h-16 text-red-400 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-white mb-4">Summary Not Available</h2>
-          <p className="text-red-300 mb-6">{error}</p>
-          <Button asChild>
-            <Link href="/upload">Upload New File</Link>
-          </Button>
-        </div>
+      <div className="min-h-screen pt-20">
+        <ErrorState
+          title="Summary Not Available"
+          message={error}
+          onRetry={() => loadSummaryData(resolvedParams.model)}
+          actions={[
+            { label: "View in History", href: "/history", variant: "outline" },
+            { label: "Upload New File", href: "/upload" },
+          ]}
+        />
       </div>
     )
   }
@@ -163,47 +156,43 @@ export default function SummaryPage({ params }: { params: Promise<{ model: strin
 
   const qualityScore = Math.round(summaryData.dataset_summary.data_quality_score * 100)
   const getQualityColor = (score: number) => {
-    if (score >= 90) return 'text-green-400'
-    if (score >= 70) return 'text-yellow-400'
-    return 'text-red-400'
+    if (score >= 90) return 'text-success'
+    if (score >= 70) return 'text-warning'
+    return 'text-destructive'
   }
 
   return (
-    <div className="min-h-screen pt-20 bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
-      {/* Background Pattern */}
-      <div className="absolute inset-0 opacity-20">
-        <div className="absolute inset-0 bg-gradient-to-r from-purple-500/10 via-transparent to-pink-500/10"></div>
-        <div className="absolute inset-0" style={{
-          backgroundImage: 'radial-gradient(circle at 25% 25%, rgba(156, 146, 172, 0.1) 0%, transparent 50%), radial-gradient(circle at 75% 75%, rgba(156, 146, 172, 0.1) 0%, transparent 50%)',
-          backgroundSize: '60px 60px'
-        }}></div>
-      </div>
-
+    <div className="min-h-screen pt-20">
       {/* Main Content */}
       <main className="relative z-10 px-6 py-12">
         <div className="max-w-7xl mx-auto">
+          {/* Pipeline wayfinding */}
+          <PipelineStepper current="predict" modelId={summaryData.model_id} className="mb-10" />
+
           {/* Header */}
           <div className="text-center mb-12">
             <motion.div
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.2 }}
             >
-              <h1 className="text-4xl md:text-5xl font-bold text-white mb-4">
+              <h1 className="text-4xl md:text-5xl font-bold text-foreground mb-4">
                 Model Analysis Summary
               </h1>
-              <p className="text-xl text-purple-200 max-w-2xl mx-auto">
+              <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
                 Comprehensive insights and performance analysis for your trained model
               </p>
-              <div className="mt-4 px-3 py-1 border border-purple-400 text-purple-300 rounded-full text-sm inline-block">
-                Model ID: {summaryData.model_id}
+              <div className="mt-4 inline-block">
+                <Badge variant="outline" className="font-mono tabular-nums">
+                  Model ID: {summaryData.model_id}
+                </Badge>
               </div>
             </motion.div>
           </div>
 
           {/* AI Summary Toggle */}
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3 }}
             className="text-center mb-8"
@@ -212,14 +201,13 @@ export default function SummaryPage({ params }: { params: Promise<{ model: strin
               onClick={loadLLMSummary}
               disabled={llmLoading}
               size="lg"
-              className="group bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600"
             >
               {llmLoading ? (
                 <>
                   <motion.div
                     animate={{ rotate: 360 }}
                     transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                    className="w-5 h-5 mr-2"
+                    className="w-5 h-5"
                   >
                     <SparklesIcon className="w-5 h-5" />
                   </motion.div>
@@ -227,42 +215,67 @@ export default function SummaryPage({ params }: { params: Promise<{ model: strin
                 </>
               ) : (
                 <>
-                  <SparklesIcon className="w-5 h-5 mr-2 group-hover:scale-110 transition-transform" />
-                  Generate AI-Enhanced Summary
+                  <SparklesIcon className="w-5 h-5" />
+                  {showLLMSummary ? "Regenerate AI Summary" : "Generate AI-Enhanced Summary"}
                 </>
               )}
             </Button>
-            <p className="text-purple-300 text-sm mt-2">
+            <p className="text-muted-foreground text-sm mt-2">
               Powered by OpenRouter + DeepSeek for advanced insights
             </p>
           </motion.div>
 
+          {/* LLM Summary error (inline + retry) */}
+          {llmError && !llmLoading && (
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-8"
+            >
+              <Card className="border-destructive/40 bg-destructive/15">
+                <CardContent className="flex flex-col items-center gap-4 py-6 text-center sm:flex-row sm:justify-between sm:text-left">
+                  <div className="flex items-start gap-3">
+                    <InformationCircleIcon className="mt-0.5 h-5 w-5 flex-shrink-0 text-destructive" />
+                    <div>
+                      <p className="font-semibold text-foreground">AI summary failed</p>
+                      <p className="text-sm text-muted-foreground">{llmError}</p>
+                    </div>
+                  </div>
+                  <Button onClick={loadLLMSummary} variant="outline" disabled={llmLoading}>
+                    <ArrowPathIcon className="h-4 w-4" />
+                    Retry
+                  </Button>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+
           {/* LLM Enhanced Summary */}
           {showLLMSummary && llmSummary && (
             <motion.div
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.4 }}
               className="mb-8"
             >
-              <Card className="glass-card border-purple-400/30 hover:border-purple-400/50 transition-all duration-300">
+              <Card>
                 <CardHeader>
-                  <CardTitle className="text-white flex items-center text-xl font-semibold">
-                    <SparklesIcon className="w-6 h-6 text-purple-400 mr-2" />
+                  <CardTitle className="text-foreground flex items-center text-xl font-semibold">
+                    <SparklesIcon className="w-6 h-6 text-primary mr-2" />
                     AI-Enhanced Analysis
                   </CardTitle>
-                  <CardDescription className="text-purple-100 text-base">
+                  <CardDescription className="text-muted-foreground text-base">
                     Generated by {llmSummary.api_info.llm_model} via {llmSummary.api_info.api_provider}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   {/* Combined Summary */}
-                  <div className="p-6 bg-gradient-to-r from-purple-500/15 to-pink-500/15 rounded-xl border border-purple-400/40 shadow-lg">
-                    <h4 className="text-xl font-semibold text-white mb-4 flex items-center">
-                      <DocumentTextIcon className="w-6 h-6 mr-3 text-purple-300" />
+                  <div className="p-6 bg-elevated rounded-lg border border-border">
+                    <h4 className="text-xl font-semibold text-foreground mb-4 flex items-center">
+                      <DocumentTextIcon className="w-6 h-6 mr-3 text-primary" />
                       Executive Summary
                     </h4>
-                    <p className="text-gray-100 leading-relaxed whitespace-pre-line text-base">
+                    <p className="text-foreground leading-relaxed whitespace-pre-line text-base">
                       {llmSummary.llm_enhanced_summaries.combined_summary}
                     </p>
                   </div>
@@ -270,16 +283,16 @@ export default function SummaryPage({ params }: { params: Promise<{ model: strin
                   {/* LLM Insights Grid */}
                   <div className="grid md:grid-cols-2 gap-6">
                     {/* Key Findings */}
-                    <div className="space-y-4 p-4 bg-white/5 rounded-lg border border-white/10">
-                      <h4 className="text-lg font-semibold text-white flex items-center">
-                        <EyeIcon className="w-5 h-5 mr-2 text-green-400" />
+                    <div className="space-y-4 p-4 bg-elevated rounded-lg border border-border">
+                      <h4 className="text-lg font-semibold text-foreground flex items-center">
+                        <EyeIcon className="w-5 h-5 mr-2 text-success" />
                         Key Findings
                       </h4>
                       <div className="space-y-3">
                         {llmSummary.llm_insights.key_findings?.map((finding, index) => (
-                          <div key={index} className="flex items-start space-x-3 p-2 rounded-md hover:bg-white/5 transition-colors">
-                            <CheckCircleIcon className="w-5 h-5 text-green-400 mt-0.5 flex-shrink-0" />
-                            <span className="text-gray-100 text-sm leading-relaxed">{finding}</span>
+                          <div key={index} className="flex items-start space-x-3 p-2 rounded-md">
+                            <CheckCircleIcon className="w-5 h-5 text-success mt-0.5 flex-shrink-0" />
+                            <span className="text-foreground text-sm leading-relaxed">{finding}</span>
                           </div>
                         ))}
                       </div>
@@ -287,31 +300,31 @@ export default function SummaryPage({ params }: { params: Promise<{ model: strin
 
                     {/* Business Insights */}
                     <div className="space-y-3">
-                      <h4 className="text-lg font-semibold text-white flex items-center">
-                        <ChartBarIcon className="w-5 h-5 mr-2" />
+                      <h4 className="text-lg font-semibold text-foreground flex items-center">
+                        <ChartBarIcon className="w-5 h-5 mr-2 text-primary" />
                         Business Insights
                       </h4>
                       <div className="space-y-2">
                         {llmSummary.llm_insights.business_insights?.map((insight, index) => (
                           <div key={index} className="flex items-start space-x-2">
-                            <InformationCircleIcon className="w-4 h-4 text-blue-400 mt-0.5 flex-shrink-0" />
-                            <span className="text-purple-200 text-sm">{insight}</span>
+                            <InformationCircleIcon className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
+                            <span className="text-muted-foreground text-sm">{insight}</span>
                           </div>
                         ))}
                       </div>
                     </div>
 
                     {/* Recommendations */}
-                    <div className="space-y-4 p-4 bg-white/5 rounded-lg border border-white/10">
-                      <h4 className="text-lg font-semibold text-white flex items-center">
-                        <LightBulbIcon className="w-5 h-5 mr-2 text-yellow-400" />
+                    <div className="space-y-4 p-4 bg-elevated rounded-lg border border-border">
+                      <h4 className="text-lg font-semibold text-foreground flex items-center">
+                        <LightBulbIcon className="w-5 h-5 mr-2 text-warning" />
                         Recommendations
                       </h4>
                       <div className="space-y-3">
                         {llmSummary.llm_insights.recommendations?.map((rec, index) => (
-                          <div key={index} className="flex items-start space-x-3 p-2 rounded-md hover:bg-white/5 transition-colors">
-                            <LightBulbIcon className="w-5 h-5 text-yellow-400 mt-0.5 flex-shrink-0" />
-                            <span className="text-gray-100 text-sm leading-relaxed">{rec}</span>
+                          <div key={index} className="flex items-start space-x-3 p-2 rounded-md">
+                            <LightBulbIcon className="w-5 h-5 text-warning mt-0.5 flex-shrink-0" />
+                            <span className="text-foreground text-sm leading-relaxed">{rec}</span>
                           </div>
                         ))}
                       </div>
@@ -319,17 +332,17 @@ export default function SummaryPage({ params }: { params: Promise<{ model: strin
 
                     {/* Next Steps */}
                     <div className="space-y-3">
-                      <h4 className="text-lg font-semibold text-white flex items-center">
-                        <ArrowLeftIcon className="w-5 h-5 mr-2 rotate-180" />
+                      <h4 className="text-lg font-semibold text-foreground flex items-center">
+                        <ArrowLeftIcon className="w-5 h-5 mr-2 rotate-180 text-primary" />
                         Next Steps
                       </h4>
                       <div className="space-y-2">
                         {llmSummary.llm_insights.next_steps?.map((step, index) => (
                           <div key={index} className="flex items-start space-x-2">
-                            <span className="w-4 h-4 bg-purple-500 text-white text-xs rounded-full flex items-center justify-center mt-0.5 flex-shrink-0">
+                            <span className="w-4 h-4 bg-elevated text-primary text-xs font-mono tabular-nums rounded-full flex items-center justify-center mt-0.5 flex-shrink-0">
                               {index + 1}
                             </span>
-                            <span className="text-purple-200 text-sm">{step}</span>
+                            <span className="text-muted-foreground text-sm">{step}</span>
                           </div>
                         ))}
                       </div>
@@ -344,50 +357,50 @@ export default function SummaryPage({ params }: { params: Promise<{ model: strin
           <div className="grid lg:grid-cols-2 gap-8 mb-8">
             {/* Dataset Overview */}
             <motion.div
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.5 }}
             >
-              <Card className="glass-card h-full border-blue-400/30 hover:border-blue-400/50 transition-all duration-300">
+              <Card className="h-full">
                 <CardHeader>
-                  <CardTitle className="text-white flex items-center text-lg font-semibold">
-                    <ChartBarIcon className="w-6 h-6 mr-3 text-blue-400" />
+                  <CardTitle className="text-foreground flex items-center text-lg font-semibold">
+                    <ChartBarIcon className="w-6 h-6 mr-3 text-primary" />
                     Dataset Overview
                   </CardTitle>
-                  <CardDescription className="text-gray-200 text-base">
+                  <CardDescription className="text-muted-foreground text-base">
                     Key statistics about your training data
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="text-center p-4 bg-gradient-to-br from-blue-500/10 to-cyan-500/10 rounded-xl border border-blue-400/20 hover:border-blue-400/40 transition-colors">
-                      <div className="text-3xl font-bold text-white mb-1">
+                    <div className="text-center p-4 bg-elevated rounded-lg border border-border">
+                      <div className="text-3xl font-bold font-mono tabular-nums text-foreground mb-1">
                         {summaryData.dataset_summary.total_rows.toLocaleString()}
                       </div>
-                      <div className="text-gray-200 text-sm font-medium">Rows</div>
+                      <div className="text-muted-foreground text-sm font-medium">Rows</div>
                     </div>
-                    <div className="text-center p-4 bg-gradient-to-br from-green-500/10 to-emerald-500/10 rounded-xl border border-green-400/20 hover:border-green-400/40 transition-colors">
-                      <div className="text-3xl font-bold text-white mb-1">
+                    <div className="text-center p-4 bg-elevated rounded-lg border border-border">
+                      <div className="text-3xl font-bold font-mono tabular-nums text-foreground mb-1">
                         {summaryData.dataset_summary.total_columns}
                       </div>
-                      <div className="text-gray-200 text-sm font-medium">Columns</div>
+                      <div className="text-muted-foreground text-sm font-medium">Columns</div>
                     </div>
                   </div>
 
-                  <div className="space-y-4 p-4 bg-white/5 rounded-lg border border-white/10">
-                    <div className="flex justify-between items-center p-2 rounded hover:bg-white/5 transition-colors">
-                      <span className="text-gray-200 font-medium">Data Quality</span>
-                      <span className={`font-bold text-lg ${getQualityColor(qualityScore)}`}>
+                  <div className="space-y-4 p-4 bg-elevated rounded-lg border border-border">
+                    <div className="flex justify-between items-center p-2 rounded">
+                      <span className="text-muted-foreground font-medium">Data Quality</span>
+                      <span className={`font-bold font-mono tabular-nums text-lg ${getQualityColor(qualityScore)}`}>
                         {qualityScore}%
                       </span>
                     </div>
-                    <div className="flex justify-between items-center p-2 rounded hover:bg-white/5 transition-colors">
-                      <span className="text-gray-200 font-medium">Missing Values</span>
-                      <span className="text-white font-semibold">{summaryData.dataset_summary.missing_values.toLocaleString()}</span>
+                    <div className="flex justify-between items-center p-2 rounded">
+                      <span className="text-muted-foreground font-medium">Missing Values</span>
+                      <span className="text-foreground font-semibold font-mono tabular-nums">{summaryData.dataset_summary.missing_values.toLocaleString()}</span>
                     </div>
-                    <div className="flex justify-between items-center p-2 rounded hover:bg-white/5 transition-colors">
-                      <span className="text-gray-200 font-medium">Duplicate Rows</span>
-                      <span className="text-white font-semibold">{summaryData.dataset_summary.duplicate_rows.toLocaleString()}</span>
+                    <div className="flex justify-between items-center p-2 rounded">
+                      <span className="text-muted-foreground font-medium">Duplicate Rows</span>
+                      <span className="text-foreground font-semibold font-mono tabular-nums">{summaryData.dataset_summary.duplicate_rows.toLocaleString()}</span>
                     </div>
                   </div>
                 </CardContent>
@@ -396,49 +409,49 @@ export default function SummaryPage({ params }: { params: Promise<{ model: strin
 
             {/* Model Overview */}
             <motion.div
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.6 }}
             >
-              <Card className="glass-card h-full border-green-400/30 hover:border-green-400/50 transition-all duration-300">
+              <Card className="h-full">
                 <CardHeader>
-                  <CardTitle className="text-white flex items-center text-lg font-semibold">
-                    <CpuChipIcon className="w-6 h-6 mr-3 text-green-400" />
+                  <CardTitle className="text-foreground flex items-center text-lg font-semibold">
+                    <CpuChipIcon className="w-6 h-6 mr-3 text-primary" />
                     Model Overview
                   </CardTitle>
-                  <CardDescription className="text-gray-200 text-base">
+                  <CardDescription className="text-muted-foreground text-base">
                     Details about your trained model
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  <div className="space-y-4 p-4 bg-white/5 rounded-lg border border-white/10">
-                    <div className="flex justify-between items-center p-2 rounded hover:bg-white/5 transition-colors">
-                      <span className="text-gray-200 font-medium">Algorithm</span>
-                      <span className="text-white font-semibold">
+                  <div className="space-y-4 p-4 bg-elevated rounded-lg border border-border">
+                    <div className="flex justify-between items-center p-2 rounded">
+                      <span className="text-muted-foreground font-medium">Algorithm</span>
+                      <span className="text-foreground font-semibold">
                         {summaryData.model_summary.algorithm.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
                       </span>
                     </div>
-                    <div className="flex justify-between items-center p-2 rounded hover:bg-white/5 transition-colors">
-                      <span className="text-gray-200 font-medium">Problem Type</span>
-                      <span className="text-white font-semibold capitalize">
+                    <div className="flex justify-between items-center p-2 rounded">
+                      <span className="text-muted-foreground font-medium">Problem Type</span>
+                      <span className="text-foreground font-semibold capitalize">
                         {summaryData.model_summary.problem_type}
                       </span>
                     </div>
-                    <div className="flex justify-between items-center p-2 rounded hover:bg-white/5 transition-colors">
-                      <span className="text-gray-200 font-medium">Target Column</span>
-                      <span className="text-white font-semibold">
+                    <div className="flex justify-between items-center p-2 rounded">
+                      <span className="text-muted-foreground font-medium">Target Column</span>
+                      <span className="text-foreground font-semibold">
                         {summaryData.model_summary.target_column}
                       </span>
                     </div>
-                    <div className="flex justify-between items-center p-2 rounded hover:bg-white/5 transition-colors">
-                      <span className="text-gray-200 font-medium">Features Used</span>
-                      <span className="text-white font-semibold">
+                    <div className="flex justify-between items-center p-2 rounded">
+                      <span className="text-muted-foreground font-medium">Features Used</span>
+                      <span className="text-foreground font-semibold font-mono tabular-nums">
                         {summaryData.model_summary.feature_count}
                       </span>
                     </div>
-                    <div className="flex justify-between items-center p-2 rounded hover:bg-white/5 transition-colors">
-                      <span className="text-gray-200 font-medium">Model Size</span>
-                      <span className="text-white font-semibold">
+                    <div className="flex justify-between items-center p-2 rounded">
+                      <span className="text-muted-foreground font-medium">Model Size</span>
+                      <span className="text-foreground font-semibold font-mono tabular-nums">
                         {summaryData.model_summary.model_file_size}
                       </span>
                     </div>
@@ -451,38 +464,49 @@ export default function SummaryPage({ params }: { params: Promise<{ model: strin
           {/* Performance Metrics */}
           {summaryData.model_summary.evaluation_metrics && (
             <motion.div
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.7 }}
               className="mb-8"
             >
-              <Card className="glass-card border-yellow-400/30 hover:border-yellow-400/50 transition-all duration-300">
+              <Card>
                 <CardHeader>
-                  <CardTitle className="text-white flex items-center text-lg font-semibold">
-                    <ChartBarIcon className="w-6 h-6 mr-3 text-yellow-400" />
+                  <CardTitle className="text-foreground flex items-center text-lg font-semibold">
+                    <ChartBarIcon className="w-6 h-6 mr-3 text-primary" />
                     Performance Metrics
                   </CardTitle>
-                  <CardDescription className="text-gray-200 text-base">
+                  <CardDescription className="text-muted-foreground text-base">
                     Model evaluation results
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    {Object.entries(summaryData.model_summary.evaluation_metrics).map(([metric, value], index) => (
-                      <div key={metric} className={`text-center p-4 rounded-xl border transition-colors hover:scale-105 transform duration-200 ${
-                        index % 4 === 0 ? 'bg-gradient-to-br from-blue-500/10 to-cyan-500/10 border-blue-400/20 hover:border-blue-400/40' :
-                        index % 4 === 1 ? 'bg-gradient-to-br from-green-500/10 to-emerald-500/10 border-green-400/20 hover:border-green-400/40' :
-                        index % 4 === 2 ? 'bg-gradient-to-br from-purple-500/10 to-pink-500/10 border-purple-400/20 hover:border-purple-400/40' :
-                        'bg-gradient-to-br from-orange-500/10 to-red-500/10 border-orange-400/20 hover:border-orange-400/40'
-                      }`}>
-                        <div className="text-3xl font-bold text-white mb-1">
-                          {typeof value === 'number' ? value.toFixed(3) : value}
-                        </div>
-                        <div className="text-gray-200 text-sm capitalize font-medium">
-                          {metric.replace('_', ' ')}
-                        </div>
-                      </div>
-                    ))}
+                    {(() => {
+                      // Only scalar metrics are tiles — skip nested structures like
+                      // per_class_report (object) and confusion_matrix (array).
+                      const PERCENT = new Set([
+                        'accuracy', 'precision', 'recall', 'f1_score', 'balanced_accuracy',
+                        'roc_auc', 'cv_mean',
+                      ])
+                      const entries = Object.entries(summaryData.model_summary.evaluation_metrics)
+                        .filter(([, v]) => typeof v === 'number' && Number.isFinite(v as number))
+                      return entries.map(([metric, value]) => {
+                        const v = value as number
+                        const display = PERCENT.has(metric) && v >= 0 && v <= 1
+                          ? `${(v * 100).toFixed(1)}%`
+                          : v.toFixed(4)
+                        return (
+                          <div key={metric} className="text-center p-4 rounded-lg border border-border bg-elevated">
+                            <div className="text-3xl font-bold font-mono tabular-nums text-foreground mb-1">
+                              {display}
+                            </div>
+                            <div className="text-muted-foreground text-sm capitalize font-medium">
+                              {metric.replace(/_/g, ' ')}
+                            </div>
+                          </div>
+                        )
+                      })
+                    })()}
                   </div>
                 </CardContent>
               </Card>
@@ -491,24 +515,24 @@ export default function SummaryPage({ params }: { params: Promise<{ model: strin
 
           {/* Natural Language Summary */}
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.8 }}
             className="mb-8"
           >
-            <Card className="glass-card border-indigo-400/30 hover:border-indigo-400/50 transition-all duration-300">
+            <Card>
               <CardHeader>
-                <CardTitle className="text-white flex items-center text-xl font-semibold">
-                  <DocumentTextIcon className="w-6 h-6 mr-3 text-indigo-400" />
+                <CardTitle className="text-foreground flex items-center text-xl font-semibold">
+                  <DocumentTextIcon className="w-6 h-6 mr-3 text-primary" />
                   Summary
                 </CardTitle>
-                <CardDescription className="text-gray-200 text-base">
+                <CardDescription className="text-muted-foreground text-base">
                   Human-readable analysis of your model and data
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="p-4 bg-gradient-to-r from-indigo-500/10 to-purple-500/10 rounded-xl border border-indigo-400/20">
-                  <p className="text-gray-100 leading-relaxed text-base">
+                <div className="p-4 bg-elevated rounded-lg border border-border">
+                  <p className="text-foreground leading-relaxed text-base">
                     {summaryData.natural_language_summary}
                   </p>
                 </div>
@@ -520,30 +544,30 @@ export default function SummaryPage({ params }: { params: Promise<{ model: strin
           <div className="grid md:grid-cols-2 gap-8 mb-8">
             {/* Insights */}
             <motion.div
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.9 }}
             >
-              <Card className="glass-card h-full border-cyan-400/30 hover:border-cyan-400/50 transition-all duration-300">
+              <Card className="h-full">
                 <CardHeader>
-                  <CardTitle className="text-white flex items-center text-lg font-semibold">
-                    <EyeIcon className="w-6 h-6 mr-3 text-cyan-400" />
+                  <CardTitle className="text-foreground flex items-center text-lg font-semibold">
+                    <EyeIcon className="w-6 h-6 mr-3 text-primary" />
                     Key Insights
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   {/* Model Insights */}
                   {summaryData.insights.model_insights.length > 0 && (
-                    <div className="p-4 bg-white/5 rounded-lg border border-white/10">
-                      <h4 className="text-white font-semibold mb-3 flex items-center">
-                        <CpuChipIcon className="w-5 h-5 mr-2 text-green-400" />
+                    <div className="p-4 bg-elevated rounded-lg border border-border">
+                      <h4 className="text-foreground font-semibold mb-3 flex items-center">
+                        <CpuChipIcon className="w-5 h-5 mr-2 text-success" />
                         Model
                       </h4>
                       <div className="space-y-3">
                         {summaryData.insights.model_insights.map((insight, index) => (
-                          <div key={index} className="flex items-start space-x-3 p-2 rounded hover:bg-white/5 transition-colors">
-                            <CheckCircleIcon className="w-5 h-5 text-green-400 mt-0.5 flex-shrink-0" />
-                            <span className="text-gray-100 text-sm leading-relaxed">{insight}</span>
+                          <div key={index} className="flex items-start space-x-3 p-2 rounded">
+                            <CheckCircleIcon className="w-5 h-5 text-success mt-0.5 flex-shrink-0" />
+                            <span className="text-foreground text-sm leading-relaxed">{insight}</span>
                           </div>
                         ))}
                       </div>
@@ -552,16 +576,16 @@ export default function SummaryPage({ params }: { params: Promise<{ model: strin
 
                   {/* Data Insights */}
                   {summaryData.insights.data_insights.length > 0 && (
-                    <div className="p-4 bg-white/5 rounded-lg border border-white/10">
-                      <h4 className="text-white font-semibold mb-3 flex items-center">
-                        <ChartBarIcon className="w-5 h-5 mr-2 text-blue-400" />
+                    <div className="p-4 bg-elevated rounded-lg border border-border">
+                      <h4 className="text-foreground font-semibold mb-3 flex items-center">
+                        <ChartBarIcon className="w-5 h-5 mr-2 text-primary" />
                         Data
                       </h4>
                       <div className="space-y-3">
                         {summaryData.insights.data_insights.map((insight, index) => (
-                          <div key={index} className="flex items-start space-x-3 p-2 rounded hover:bg-white/5 transition-colors">
-                            <InformationCircleIcon className="w-5 h-5 text-blue-400 mt-0.5 flex-shrink-0" />
-                            <span className="text-gray-100 text-sm leading-relaxed">{insight}</span>
+                          <div key={index} className="flex items-start space-x-3 p-2 rounded">
+                            <InformationCircleIcon className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
+                            <span className="text-foreground text-sm leading-relaxed">{insight}</span>
                           </div>
                         ))}
                       </div>
@@ -573,24 +597,24 @@ export default function SummaryPage({ params }: { params: Promise<{ model: strin
 
             {/* Recommendations */}
             <motion.div
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 1.0 }}
             >
-              <Card className="glass-card h-full border-yellow-400/30 hover:border-yellow-400/50 transition-all duration-300">
+              <Card className="h-full">
                 <CardHeader>
-                  <CardTitle className="text-white flex items-center text-lg font-semibold">
-                    <LightBulbIcon className="w-6 h-6 mr-3 text-yellow-400" />
+                  <CardTitle className="text-foreground flex items-center text-lg font-semibold">
+                    <LightBulbIcon className="w-6 h-6 mr-3 text-warning" />
                     Recommendations
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="p-4 bg-white/5 rounded-lg border border-white/10">
+                  <div className="p-4 bg-elevated rounded-lg border border-border">
                     <div className="space-y-3">
                       {summaryData.insights.recommendations.map((rec, index) => (
-                        <div key={index} className="flex items-start space-x-3 p-2 rounded hover:bg-white/5 transition-colors">
-                          <LightBulbIcon className="w-5 h-5 text-yellow-400 mt-0.5 flex-shrink-0" />
-                          <span className="text-gray-100 text-sm leading-relaxed">{rec}</span>
+                        <div key={index} className="flex items-start space-x-3 p-2 rounded">
+                          <LightBulbIcon className="w-5 h-5 text-warning mt-0.5 flex-shrink-0" />
+                          <span className="text-foreground text-sm leading-relaxed">{rec}</span>
                         </div>
                       ))}
                     </div>
@@ -602,25 +626,20 @@ export default function SummaryPage({ params }: { params: Promise<{ model: strin
 
           {/* Action Buttons */}
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 1.1 }}
             className="flex flex-col sm:flex-row gap-4 justify-center"
           >
-            <Button asChild size="xl" className="group bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 shadow-lg hover:shadow-purple-500/25 transform hover:scale-105">
+            <Button asChild size="xl">
               <Link href={`/predict/${resolvedParams.model}`}>
                 Make Predictions
-                <ArrowLeftIcon className="w-5 h-5 ml-2 rotate-180 group-hover:translate-x-1 transition-transform" />
+                <ArrowLeftIcon className="w-5 h-5 rotate-180" />
               </Link>
             </Button>
 
-            <Button
-              variant="outline"
-              size="xl"
-              onClick={() => router.back()}
-              className="border-purple-400/50 text-purple-200 hover:bg-purple-400/20 hover:text-white hover:border-purple-400 backdrop-blur-sm bg-white/5"
-            >
-              Back to Training
+            <Button asChild variant="outline" size="xl">
+              <Link href="/history">View in History</Link>
             </Button>
           </motion.div>
         </div>

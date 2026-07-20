@@ -7,14 +7,13 @@ const nextConfig: NextConfig = {
   // Disable strict mode for better compatibility
   reactStrictMode: false,
 
-  // Disable ESLint during build for Docker
+  // Build gates ON: fail the build on real type/lint errors. Pre-existing style
+  // debt is downgraded to warnings in eslint.config.mjs so it doesn't block.
   eslint: {
-    ignoreDuringBuilds: true,
+    ignoreDuringBuilds: false,
   },
-
-  // Disable TypeScript checking during build for Docker
   typescript: {
-    ignoreBuildErrors: true,
+    ignoreBuildErrors: false,
   },
 
   // Configure environment variables

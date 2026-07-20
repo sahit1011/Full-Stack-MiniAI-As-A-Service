@@ -13,6 +13,7 @@ import asyncio
 from datetime import datetime
 
 from .config import settings
+from .storage import storage
 
 
 class FileHandler:
@@ -86,9 +87,13 @@ class FileHandler:
                     "max_size_mb": max_size_mb
                 }
             )
-        
+
+        # Write-through to Supabase Storage so the upload survives a redeploy
+        # (no-op when storage is not configured — local disk is authoritative then).
+        storage.upload(file_path, f"uploads/{filename}", content_type="text/csv")
+
         return file_path
-    
+
     def get_file_info(self, file_path: Path) -> Dict[str, Any]:
         """Get basic file information"""
         stat = file_path.stat()
@@ -100,21 +105,35 @@ class FileHandler:
         }
     
     def cleanup_file(self, session_id: str) -> bool:
-        """Clean up uploaded file"""
+        """Clean up uploaded file (local cache and storage backing)"""
+        removed = False
         try:
             # Find file with session_id
             for file_path in self.upload_dir.glob(f"{session_id}.*"):
                 file_path.unlink(missing_ok=True)
-                return True
-            return False
+                removed = True
         except Exception:
-            return False
-    
+            pass
+        # Best-effort removal of the storage-backed copy for every known extension.
+        for ext in self.allowed_extensions:
+            storage.remove(f"uploads/{session_id}{ext}")
+        return removed
+
     def get_file_path(self, session_id: str) -> Optional[Path]:
-        """Get file path for a session ID"""
+        """Get file path for a session ID.
+
+        Prefer the local cache; on a miss (e.g. after a redeploy wiped the disk),
+        pull the object back from Supabase Storage so callers still get a real Path.
+        """
         for ext in self.allowed_extensions:
             file_path = self.upload_dir / f"{session_id}{ext}"
             if file_path.exists():
+                return file_path
+
+        # Local miss — try to restore from storage backing.
+        for ext in self.allowed_extensions:
+            file_path = self.upload_dir / f"{session_id}{ext}"
+            if storage.download_to(f"uploads/{session_id}{ext}", file_path):
                 return file_path
         return None
 

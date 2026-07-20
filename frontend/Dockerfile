@@ -1,4 +1,4 @@
-# Frontend Dockerfile for Othor AI
+# Frontend Dockerfile for Klaro
 FROM node:18-alpine AS base
 
 # Install dependencies only when needed

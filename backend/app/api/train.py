@@ -1,10 +1,11 @@
 """
 Model training API endpoints
 """
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, HTTPException, status, Depends, BackgroundTasks
 from fastapi.responses import JSONResponse
 from datetime import datetime
 from typing import Dict, Any
+import asyncio
 import logging
 import os
 import time
@@ -16,12 +17,9 @@ from ..core.ml_processor import ml_processor
 from ..core.smart_model_selector import smart_model_selector
 from pydantic import BaseModel, Field
 from typing import Optional
-from ..core.intelligent_analyzer import intelligent_analyzer
-from ..core.smart_model_selector import smart_model_selector
-from ..core.enhanced_preprocessor import enhanced_preprocessor
-from ..auth.dependencies import get_current_user
+from ..auth.dependencies import get_current_user, verify_model_access
 from ..database.models import User, FileMetadata, ModelMetadata
-from ..database.database import get_db
+from ..database.database import get_db, SessionLocal
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -37,12 +35,116 @@ class EnhancedTrainRequest(BaseModel):
     problem_type: Optional[str] = Field(None, description="Problem type: classification, regression, or auto")
 
 
-@router.post("/", response_model=TrainResponse)
+def _run_training_job(model_id: str, train_kwargs: Dict[str, Any], training_parameters: Dict[str, Any]) -> None:
+    """
+    Execute a training run in the background (BackgroundTasks runs this sync fn in a worker
+    thread). Uses its OWN DB session — the request's session is already closed by the time this
+    runs — and drives the pre-inserted ModelMetadata row through its lifecycle:
+    queued → training → completed/failed.
+    """
+    db = SessionLocal()
+    try:
+        row = db.query(ModelMetadata).filter(ModelMetadata.model_id == model_id).first()
+        if row is None:
+            logger.error(f"Training job {model_id}: metadata row not found, aborting")
+            return
+        row.status = "training"
+        db.commit()
+
+        started = time.time()
+        result = ml_processor.train_model(model_id=model_id, **train_kwargs)
+        duration = time.time() - started
+
+        ti = result.get("training_info", {})
+        row.algorithm = result["algorithm"]
+        row.model_type = result["model_type"]
+        row.evaluation_metrics = result["evaluation_metrics"]
+        row.feature_importance = result.get("feature_importance", {})
+        row.model_path = result["model_path"]
+        if os.path.exists(result["model_path"]):
+            row.model_size = os.path.getsize(result["model_path"])
+        row.training_duration = duration
+        row.num_features = ti.get("features_count") or len(result.get("feature_importance", {}))
+        row.num_training_samples = ti.get("training_samples")
+        row.num_test_samples = ti.get("test_samples")
+        row.training_parameters = {
+            **(training_parameters or {}),
+            "optimization_level": ti.get("optimization_level"),
+            "tuned": ti.get("tuned"),
+            "best_params": ti.get("best_params"),
+        }
+        row.trained_at = datetime.now()
+        row.status = "completed"
+        db.commit()
+        logger.info(f"Training job {model_id} completed in {duration:.2f}s")
+    except Exception as e:
+        logger.error(f"Training job {model_id} failed: {str(e)}")
+        db.rollback()
+        try:
+            row = db.query(ModelMetadata).filter(ModelMetadata.model_id == model_id).first()
+            if row is not None:
+                row.status = "failed"
+                row.error_message = str(e)
+                db.commit()
+        except Exception as inner:
+            logger.error(f"Training job {model_id}: could not record failure: {str(inner)}")
+            db.rollback()
+    finally:
+        db.close()
+
+
+def _queue_training_job(
+    *,
+    db: Session,
+    background_tasks: BackgroundTasks,
+    session_id: str,
+    file_id: int,
+    user_id: int,
+    algorithm: str,
+    model_type: str,
+    target_column: str,
+    test_size: float,
+    random_state: int,
+    model_name: str,
+    training_parameters: Dict[str, Any],
+    train_kwargs: Dict[str, Any],
+) -> str:
+    """
+    Pre-register a ModelMetadata row (status=queued) and schedule the background training job.
+    Returns the model_id immediately so the route can respond 202 without blocking.
+    model_path / evaluation_metrics are non-null columns, so they're seeded with placeholders
+    and filled in when the job completes.
+    """
+    model_id = ml_processor.generate_model_id(session_id)
+    row = ModelMetadata(
+        model_id=model_id,
+        model_name=model_name,
+        algorithm=algorithm,
+        # model_type is non-null; "auto" isn't resolved until training runs, so park it as "pending"
+        model_type=model_type if model_type in ("classification", "regression") else "pending",
+        target_column=target_column,
+        test_size=test_size,
+        random_state=random_state,
+        training_parameters=training_parameters,
+        evaluation_metrics={},   # placeholder until completion (column is non-null)
+        model_path="",           # placeholder until completion (column is non-null)
+        user_id=user_id,
+        file_id=file_id,
+        status="queued",
+    )
+    db.add(row)
+    db.commit()
+    background_tasks.add_task(_run_training_job, model_id, train_kwargs, training_parameters)
+    return model_id
+
+
+@router.post("/", status_code=202)
 async def train_model(
     request: TrainRequest,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
-) -> TrainResponse:
+) -> JSONResponse:
     """
     Train a machine learning model on uploaded data.
     
@@ -125,13 +227,14 @@ async def train_model(
                 }
             )
         
-        if request.algorithm not in ["random_forest", "logistic_regression", "xgboost"]:
+        supported_algorithms = ml_processor.get_supported_algorithms()
+        if request.algorithm not in supported_algorithms:
             raise HTTPException(
                 status_code=400,
                 detail={
                     "error": "UNSUPPORTED_ALGORITHM",
                     "message": f"Algorithm '{request.algorithm}' is not supported",
-                    "supported_algorithms": ["random_forest", "logistic_regression", "xgboost"]
+                    "supported_algorithms": sorted(supported_algorithms.keys())
                 }
             )
         
@@ -145,86 +248,43 @@ async def train_model(
                 }
             )
         
-        logger.info(f"Training model with algorithm: {request.algorithm}, type: {request.model_type}")
+        logger.info(f"Queuing training for session {request.session_id} (algorithm={request.algorithm})")
 
-        # Record training start time
-        training_start_time = time.time()
-
-        # Train the model
-        training_result = ml_processor.train_model(
-            file_path=file_path,
-            target_column=request.target_column,
+        # Register the job and return immediately (202). Actual training runs in the background;
+        # the client polls GET /train/status/{model_id} for queued → training → completed/failed.
+        model_id = _queue_training_job(
+            db=db,
+            background_tasks=background_tasks,
             session_id=request.session_id,
-            model_type=request.model_type,
+            file_id=file_metadata.id,
+            user_id=current_user.id,
             algorithm=request.algorithm,
+            model_type=request.model_type,
+            target_column=request.target_column,
             test_size=request.test_size,
-            random_state=request.random_state
-        )
-
-        # Calculate training duration
-        training_duration = time.time() - training_start_time
-
-        logger.info(f"Model training completed successfully. Model ID: {training_result['model_id']}")
-
-        # Save model metadata to database
-        try:
-            # Get model file size
-            model_file_size = None
-            if os.path.exists(training_result["model_path"]):
-                model_file_size = os.path.getsize(training_result["model_path"])
-
-            model_metadata = ModelMetadata(
-                model_id=training_result["model_id"],
-                model_name=f"{request.algorithm}_{request.target_column}",
-                algorithm=training_result["algorithm"],
-                model_type=training_result["model_type"],
+            random_state=request.random_state,
+            model_name=f"{request.algorithm}_{request.target_column}",
+            training_parameters={
+                "algorithm": request.algorithm,
+                "model_type": request.model_type,
+                "test_size": request.test_size,
+                "random_state": request.random_state,
+            },
+            train_kwargs=dict(
+                file_path=file_path,
                 target_column=request.target_column,
+                session_id=request.session_id,
+                model_type=request.model_type,
+                algorithm=request.algorithm,
                 test_size=request.test_size,
                 random_state=request.random_state,
-                training_parameters={
-                    "algorithm": request.algorithm,
-                    "model_type": request.model_type,
-                    "test_size": request.test_size,
-                    "random_state": request.random_state
-                },
-                evaluation_metrics=training_result["evaluation_metrics"],
-                feature_importance=training_result["feature_importance"],
-                model_path=training_result["model_path"],
-                model_size=model_file_size,
-                training_duration=training_duration,
-                num_features=len(training_result.get("feature_importance", {})),
-                num_training_samples=training_result["training_info"].get("train_samples"),
-                num_test_samples=training_result["training_info"].get("test_samples"),
-                user_id=current_user.id,
-                file_id=file_metadata.id,
-                trained_at=datetime.now(),
-                status="completed"
-            )
-
-            db.add(model_metadata)
-            db.commit()
-            db.refresh(model_metadata)
-            logger.info(f"Model metadata saved to database for model {training_result['model_id']}")
-
-        except Exception as db_error:
-            logger.error(f"Failed to save model metadata for model {training_result['model_id']}: {str(db_error)}")
-            db.rollback()
-            # Continue with response even if database save fails
-
-        # Create response
-        response = TrainResponse(
-            model_id=training_result["model_id"],
-            session_id=training_result["session_id"],
-            model_type=training_result["model_type"],
-            algorithm=training_result["algorithm"],
-            training_info=training_result["training_info"],
-            evaluation_metrics=training_result["evaluation_metrics"],
-            feature_importance=training_result["feature_importance"],
-            model_path=training_result["model_path"],
-            timestamp=training_result["timestamp"]
+            ),
         )
 
-        return response
+        return JSONResponse(
+            status_code=202,
+            content={"model_id": model_id, "status": "queued", "message": "Training started"},
+        )
         
     except HTTPException:
         # Re-raise HTTP exceptions
@@ -254,13 +314,14 @@ async def train_model(
         )
 
 
-@router.post("/{session_id}/enhanced-train", response_model=TrainResponse)
+@router.post("/{session_id}/enhanced-train", status_code=202)
 async def enhanced_train_model(
     session_id: str,
     request: EnhancedTrainRequest,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
-) -> TrainResponse:
+) -> JSONResponse:
     """
     Enhanced training endpoint with intelligent model selection and optimization.
 
@@ -296,109 +357,85 @@ async def enhanced_train_model(
 
         logger.info(f"File found for session {session_id}: {file_path}")
 
-        # Map model names to algorithms
-        model_algorithm_map = {
-            "random_forest": "random_forest",
-            "logistic_regression": "logistic_regression",
-            "xgboost": "xgboost",
-            "linear_regression": "logistic_regression",  # Use logistic for linear
-            "decision_tree": "random_forest",  # Use RF for decision tree
-            "svm": "logistic_regression",  # Use logistic for SVM
-            "naive_bayes": "logistic_regression"  # Use logistic for naive bayes
-        }
+        # Resolve the requested algorithm honestly — no silent substitution.
+        # (The old code mapped svm/naive_bayes/decision_tree onto logistic/RF, so a user who
+        # asked for SVM was given a LogisticRegression labelled as such. We now train exactly
+        # what was requested, or return 400 if it isn't supported.)
+        algorithm = (request.model_name or "random_forest").lower()
+        # "linear_regression" is an alias for the regression head of logistic_regression in our registry
+        if algorithm == "linear_regression":
+            algorithm = "logistic_regression"
 
-        algorithm = model_algorithm_map.get(request.model_name.lower(), "random_forest")
+        supported_algorithms = ml_processor.get_supported_algorithms()
+        if algorithm not in supported_algorithms:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "UNSUPPORTED_ALGORITHM",
+                    "message": f"Algorithm '{request.model_name}' is not supported",
+                    "supported_algorithms": sorted(supported_algorithms.keys()),
+                },
+            )
 
         # Determine problem type
         problem_type = request.problem_type or "auto"
 
         logger.info(f"Enhanced training with algorithm: {algorithm}, type: {problem_type}")
 
-        # Use the regular training method with enhanced parameters
-        training_result = ml_processor.train_model(
-            file_path=file_path,
-            target_column=request.target_column,
+        # Verify the session belongs to this user (ownership) and get the FK for the job row
+        file_metadata = db.query(FileMetadata).filter(
+            FileMetadata.session_id == session_id,
+            FileMetadata.user_id == current_user.id
+        ).first()
+        if not file_metadata:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error": "SESSION_NOT_FOUND",
+                    "message": f"No file found for session ID: {session_id} or access denied",
+                    "session_id": session_id,
+                },
+            )
+
+        logger.info(f"Queuing enhanced training for session {session_id} (algorithm={algorithm})")
+
+        # "medium" enables cross-validation + RandomizedSearch tuning, so the enhanced route is
+        # genuinely enhanced. Runs in the background; client polls GET /train/status/{model_id}.
+        model_id = _queue_training_job(
+            db=db,
+            background_tasks=background_tasks,
             session_id=session_id,
-            model_type=problem_type,
+            file_id=file_metadata.id,
+            user_id=current_user.id,
             algorithm=algorithm,
-            test_size=0.2,  # Standard test size for enhanced training
-            random_state=42
+            model_type=problem_type,
+            target_column=request.target_column,
+            test_size=0.2,
+            random_state=42,
+            model_name=f"enhanced_{algorithm}_{request.target_column}",
+            training_parameters={
+                "algorithm": algorithm,
+                "model_type": problem_type,
+                "test_size": 0.2,
+                "random_state": 42,
+                "enhanced_training": True,
+            },
+            train_kwargs=dict(
+                file_path=file_path,
+                target_column=request.target_column,
+                session_id=session_id,
+                model_type=problem_type,
+                algorithm=algorithm,
+                test_size=0.2,
+                random_state=42,
+                optimization_level="medium",
+            ),
         )
 
-        logger.info(f"Enhanced model training completed successfully. Model ID: {training_result['model_id']}")
-
-        # Save model metadata to database (same as regular training endpoint)
-        try:
-            # Get file metadata for foreign key relationship
-            file_metadata = db.query(FileMetadata).filter(
-                FileMetadata.session_id == session_id,
-                FileMetadata.user_id == current_user.id
-            ).first()
-
-            if not file_metadata:
-                logger.warning(f"File metadata not found for session {session_id}, skipping database save")
-            else:
-                # Calculate model file size
-                model_file_size = None
-                if os.path.exists(training_result["model_path"]):
-                    model_file_size = os.path.getsize(training_result["model_path"])
-
-                # Calculate training duration (approximate)
-                training_duration = None  # Could be calculated if needed
-
-                model_metadata = ModelMetadata(
-                    model_id=training_result["model_id"],
-                    model_name=f"enhanced_{algorithm}_{request.target_column}",
-                    algorithm=training_result["algorithm"],
-                    model_type=training_result["model_type"],
-                    target_column=request.target_column,
-                    test_size=0.2,
-                    random_state=42,
-                    training_parameters={
-                        "algorithm": algorithm,
-                        "model_type": problem_type,
-                        "test_size": 0.2,
-                        "random_state": 42,
-                        "enhanced_training": True
-                    },
-                    evaluation_metrics=training_result["evaluation_metrics"],
-                    feature_importance=training_result["feature_importance"],
-                    model_path=training_result["model_path"],
-                    model_size=model_file_size,
-                    training_duration=training_duration,
-                    num_features=training_result["training_info"].get("features_count"),
-                    num_training_samples=training_result["training_info"].get("training_samples"),
-                    num_test_samples=training_result["training_info"].get("test_samples"),
-                    user_id=current_user.id,
-                    file_id=file_metadata.id,
-                    trained_at=datetime.now(),
-                    status="completed"
-                )
-
-                db.add(model_metadata)
-                db.commit()
-                db.refresh(model_metadata)
-                logger.info(f"Enhanced model metadata saved to database for model {training_result['model_id']}")
-
-        except Exception as db_error:
-            logger.error(f"Failed to save enhanced model metadata for model {training_result['model_id']}: {str(db_error)}")
-            db.rollback()
-            # Continue with response even if database save fails
-
-        # Create response
-        response = TrainResponse(
-            model_id=training_result["model_id"],
-            session_id=training_result["session_id"],
-            model_type=training_result["model_type"],
-            algorithm=training_result["algorithm"],
-            training_info=training_result["training_info"],
-            evaluation_metrics=training_result["evaluation_metrics"],
-            feature_importance=training_result["feature_importance"],
-            model_path=training_result["model_path"],
-            timestamp=training_result["timestamp"]
+        return JSONResponse(
+            status_code=202,
+            content={"model_id": model_id, "status": "queued", "message": "Enhanced training started"},
         )
-
-        return response
 
     except HTTPException:
         # Re-raise HTTP exceptions
@@ -436,30 +473,75 @@ async def get_supported_algorithms() -> Dict[str, Any]:
     **Returns:**
     - Dictionary of supported algorithms with descriptions and use cases
     """
-    return {
-        "algorithms": {
-            "random_forest": {
-                "name": "Random Forest",
-                "description": "Ensemble method using multiple decision trees",
-                "use_cases": ["Classification", "Regression"],
-                "pros": ["Handles missing values", "Feature importance", "Robust to overfitting"],
-                "cons": ["Can be slow on large datasets", "Less interpretable than single trees"]
-            },
-            "logistic_regression": {
-                "name": "Logistic/Linear Regression",
-                "description": "Linear model for classification and regression",
-                "use_cases": ["Binary/Multi-class Classification", "Linear Regression"],
-                "pros": ["Fast training", "Interpretable", "Probabilistic output"],
-                "cons": ["Assumes linear relationships", "Sensitive to outliers"]
-            },
-            "xgboost": {
-                "name": "XGBoost",
-                "description": "Gradient boosting framework",
-                "use_cases": ["Classification", "Regression"],
-                "pros": ["High performance", "Feature importance", "Handles missing values"],
-                "cons": ["More complex hyperparameters", "Can overfit with small datasets"]
-            }
+    # Descriptions for the algorithms we actually train (drives the train UI honestly)
+    descriptions = {
+        "random_forest": {
+            "name": "Random Forest",
+            "description": "Ensemble of decision trees",
+            "pros": ["Handles missing values", "Feature importance", "Robust to overfitting"],
+            "cons": ["Slower on large datasets", "Less interpretable than a single tree"],
         },
+        "logistic_regression": {
+            "name": "Logistic / Linear Regression",
+            "description": "Linear model (logistic for classification, linear for regression)",
+            "pros": ["Fast", "Interpretable", "Probabilistic output"],
+            "cons": ["Assumes linear relationships", "Sensitive to outliers"],
+        },
+        "xgboost": {
+            "name": "XGBoost",
+            "description": "Gradient boosting framework",
+            "pros": ["High performance", "Feature importance", "Handles missing values"],
+            "cons": ["More hyperparameters", "Can overfit on small datasets"],
+        },
+        "svm": {
+            "name": "Support Vector Machine",
+            "description": "Margin-based classifier/regressor (SVC/SVR)",
+            "pros": ["Effective in high dimensions", "Flexible kernels"],
+            "cons": ["Slow on large datasets", "Sensitive to scaling/params"],
+        },
+        "knn": {
+            "name": "k-Nearest Neighbors",
+            "description": "Instance-based learner using nearest neighbors",
+            "pros": ["Simple", "No training cost", "Non-linear"],
+            "cons": ["Slow at predict time", "Sensitive to scaling & k"],
+        },
+        "naive_bayes": {
+            "name": "Gaussian Naive Bayes",
+            "description": "Probabilistic classifier (classification only)",
+            "pros": ["Very fast", "Works with little data"],
+            "cons": ["Assumes feature independence", "Classification only"],
+        },
+        "decision_tree": {
+            "name": "Decision Tree",
+            "description": "Single interpretable tree",
+            "pros": ["Highly interpretable", "Handles non-linearities"],
+            "cons": ["Prone to overfitting"],
+        },
+        "ridge": {
+            "name": "Ridge Regression",
+            "description": "L2-regularized linear regression (regression only)",
+            "pros": ["Handles multicollinearity", "Stable"],
+            "cons": ["Linear only", "Regression only"],
+        },
+        "lasso": {
+            "name": "Lasso Regression",
+            "description": "L1-regularized linear regression (regression only)",
+            "pros": ["Feature selection", "Sparse models"],
+            "cons": ["Linear only", "Regression only"],
+        },
+    }
+
+    supported = ml_processor.get_supported_algorithms()  # algo -> [problem types]
+    algorithms = {
+        algo: {
+            **descriptions.get(algo, {"name": algo, "description": "", "pros": [], "cons": []}),
+            "supported_problem_types": problem_types,
+        }
+        for algo, problem_types in supported.items()
+    }
+
+    return {
+        "algorithms": algorithms,
         "model_types": {
             "auto": "Automatically detect classification vs regression based on target column",
             "classification": "Predict discrete categories or classes",
@@ -471,51 +553,58 @@ async def get_supported_algorithms() -> Dict[str, Any]:
 
 
 @router.get("/status/{model_id}")
-async def get_training_status(model_id: str) -> Dict[str, Any]:
+async def get_training_status(
+    model_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
     """
-    Get training status and basic information for a model.
-    
-    **Parameters:**
-    - model_id: The model ID returned from training
-    
-    **Returns:**
-    - Model status and basic information
+    Poll the lifecycle of a (background) training job for a model owned by the current user.
+
+    Status progresses queued → training → completed | failed. When completed, the response
+    carries the real evaluation metrics, feature importance, and training info so the client
+    can render results without a second request. When failed, `error_message` explains why.
     """
-    try:
-        # Try to load model to check if it exists
-        pipeline, metadata = ml_processor.load_model(model_id)
-        
-        return {
-            "model_id": model_id,
-            "status": "completed",
-            "algorithm": metadata.get("algorithm", "unknown"),
-            "problem_type": metadata.get("problem_type", "unknown"),
-            "target_column": metadata.get("target_column", "unknown"),
-            "session_id": metadata.get("session_id", "unknown"),
-            "feature_count": len(metadata.get("feature_names", [])),
-            "created_timestamp": metadata.get("timestamp", "unknown")
-        }
-        
-    except ValueError:
+    # Owner-scoped lookup (404 if missing or not owned — prevents IDOR)
+    row = db.query(ModelMetadata).filter(
+        ModelMetadata.model_id == model_id,
+        ModelMetadata.user_id == current_user.id,
+    ).first()
+
+    if row is None:
         raise HTTPException(
             status_code=404,
-            detail={
-                "error": "MODEL_NOT_FOUND",
-                "message": f"Model {model_id} not found",
-                "model_id": model_id
-            }
+            detail={"error": "MODEL_NOT_FOUND", "message": f"Model {model_id} not found", "model_id": model_id},
         )
-    except Exception as e:
-        logger.error(f"Error getting training status for model {model_id}: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "error": "STATUS_ERROR",
-                "message": "Failed to get training status",
-                "model_id": model_id,
-                "details": str(e)
-            }
-        )
+
+    response: Dict[str, Any] = {
+        "model_id": row.model_id,
+        "status": row.status,
+        "algorithm": row.algorithm,
+        "problem_type": row.model_type,
+        "target_column": row.target_column,
+        "error_message": row.error_message,
+    }
+
+    if row.status == "completed":
+        response.update({
+            "evaluation_metrics": row.evaluation_metrics or {},
+            "feature_importance": row.feature_importance or {},
+            "model_path": row.model_path,
+            "training_info": {
+                "algorithm": row.algorithm,
+                "problem_type": row.model_type,
+                "target_column": row.target_column,
+                "features_count": row.num_features,
+                "training_samples": row.num_training_samples,
+                "test_samples": row.num_test_samples,
+                "training_duration": row.training_duration,
+                **(row.training_parameters or {}),
+            },
+            "trained_at": row.trained_at.isoformat() if row.trained_at else None,
+        })
+
+    return response
 
 
 @router.get("/{session_id}/model-recommendations")
@@ -639,133 +728,3 @@ async def get_model_recommendations(
             }
         )
 
-
-@router.post("/{session_id}/enhanced-train")
-async def enhanced_train_model_v2(
-    session_id: str,
-    target_column: str,
-    model_name: str = "auto",
-    problem_type: str = "auto",
-    optimization_level: str = "medium",
-    preprocessing_config: Dict[str, Any] = None,
-    current_user: User = Depends(get_current_user)
-) -> Dict[str, Any]:
-    """
-    Enhanced model training with intelligent preprocessing and optimization.
-
-    This endpoint provides advanced training capabilities:
-    - Intelligent preprocessing based on data characteristics
-    - Smart model selection if model_name is 'auto'
-    - Hyperparameter optimization
-    - Advanced feature engineering
-    - Comprehensive model evaluation
-
-    **Parameters:**
-    - session_id: Session ID from file upload
-    - target_column: Name of the target column
-    - model_name: Model to train ('auto' for smart selection)
-    - problem_type: 'auto', 'classification', or 'regression'
-    - optimization_level: 'basic', 'medium', 'advanced'
-    - preprocessing_config: Optional preprocessing configuration
-
-    **Returns:**
-    - Enhanced training results with detailed analysis
-    """
-    try:
-        logger.info(f"Starting enhanced training for session {session_id}")
-
-        # Check if file exists
-        file_path = file_handler.get_file_path(session_id)
-        if not file_path:
-            raise HTTPException(
-                status_code=404,
-                detail={
-                    "error": "SESSION_NOT_FOUND",
-                    "message": f"No file found for session ID: {session_id}",
-                    "session_id": session_id
-                }
-            )
-
-        # Load data
-        df = ml_processor.load_data(file_path)
-
-        # Validate target column
-        if target_column not in df.columns:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "error": "INVALID_TARGET_COLUMN",
-                    "message": f"Target column '{target_column}' not found in dataset",
-                    "available_columns": df.columns.tolist()
-                }
-            )
-
-        # Detect problem type if auto
-        if problem_type == "auto":
-            detected_type = ml_processor.detect_problem_type(df, target_column)
-            problem_type = detected_type
-
-        # Get intelligent analysis
-        analysis = intelligent_analyzer.analyze_dataset(df, session_id)
-
-        # Smart model selection if requested
-        if model_name == "auto":
-            dataset_characteristics = {
-                'dataset_size': len(df),
-                'feature_count': len(df.columns) - 1,
-                'data_quality': analysis.get('data_quality', {})
-            }
-
-            recommendations = smart_model_selector.recommend_models(
-                dataset_characteristics,
-                problem_type
-            )
-
-            if recommendations:
-                model_name = recommendations[0]['model_name']
-                logger.info(f"Auto-selected model: {model_name}")
-            else:
-                model_name = "random_forest"  # Fallback
-
-        # Enhanced preprocessing
-        preprocessor, feature_names, preprocessing_info = enhanced_preprocessor.create_preprocessing_pipeline(
-            df, target_column, problem_type, preprocessing_config
-        )
-
-        # Train model with enhanced pipeline
-        training_result = ml_processor.train_model_enhanced(
-            df, target_column, model_name, problem_type,
-            preprocessor, feature_names, optimization_level
-        )
-
-        # Combine all results
-        enhanced_result = {
-            "session_id": session_id,
-            "target_column": target_column,
-            "problem_type": problem_type,
-            "selected_model": model_name,
-            "intelligent_analysis": analysis,
-            "preprocessing_info": preprocessing_info,
-            "training_result": training_result,
-            "optimization_level": optimization_level,
-            "timestamp": datetime.now().isoformat()
-        }
-
-        logger.info(f"Enhanced training completed for session {session_id}")
-
-        return enhanced_result
-
-    except HTTPException:
-        raise
-
-    except Exception as e:
-        logger.error(f"Error during enhanced training for session {session_id}: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "error": "ENHANCED_TRAINING_ERROR",
-                "message": "An error occurred during enhanced model training",
-                "session_id": session_id,
-                "details": str(e)
-            }
-        )
